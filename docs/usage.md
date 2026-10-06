@@ -15,7 +15,14 @@
    of them each machine needs.
 7. **Blueprints**: the layout of a block as a blueprint string you can paste in the game (needs geometry from a
    dump).
-8. **Save** the chain to continue later.
+8. **Request chest for the chain**: the *Request chest: what the chain needs* button in the results collects the
+   building materials of all stages (machines, belts, inserters, poles, modules, beacons) into one requester chest
+   and copies its blueprint string to the clipboard; paste it in the game and build the chest.
+9. **Request chest for any blueprint**: the *Chest from blueprint* tab takes a blueprint string pasted into it,
+   counts everything it consists of and builds a requester chest for it. The same tab has the "Assemble everything"
+   mall: an assembler for every building recipe with a request chest and a supply chest; the whole mall is also
+   given in parts, because the game's import window does not accept very long strings.
+10. **Save** the chain to continue later.
 
 Tips: *Settings* has "only researched recipes" (save dumps only), the language switch is **EN | RU** in the
 corner, the ☾/☀ button toggles the theme.

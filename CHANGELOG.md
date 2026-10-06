@@ -12,6 +12,7 @@ First public release.
 - Belts, fluids, inserters and loaders; the *Inserters* tab with tick boxes (researched ones by default in a save dump,
   none in a full dump), kept between dumps, with an offer to update hand-edited rows to a new dump.
 - Blueprint generation for the layout of a block.
+- Request chest for the whole chain; request chest for any pasted blueprint; "Assemble everything" mall.
 - Recipe search by name, product, ingredient or id.
 - Dumps: `dump_full.bat` (all recipes + geometry) and `dump_from_save.bat` (also what is researched); names in the
   language of your game; icons and geometry cached per mod set.

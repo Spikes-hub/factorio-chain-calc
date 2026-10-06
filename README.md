@@ -26,6 +26,9 @@ It runs on your own computer, in the browser.
 - Belts and fluids: how many belts per input and output, which belt tier is enough.
 - Inserters and loaders: how many per machine, a section where you set which ones you have (stack bonus, speed).
 - Ready-to-paste **blueprints** of the layout (needs a full or save dump).
+- **Request chest for the whole chain**: one button collects everything the chain needs to build (machines, belts, inserters, poles, modules, beacons) into a single requester chest and copies its blueprint string to the clipboard.
+- **Request chest for any blueprint**: paste a blueprint string into the *Chest from blueprint* tab and get a requester chest with everything that blueprint consists of.
+- **"Assemble everything" mall**: one assembler per building recipe with a request chest and a supply chest (the *Chest from blueprint* tab).
 - Recipe search by name, product or ingredient; saved chains; "only researched recipes" mode.
 - English / Russian interface (auto-detected, switch in the corner), dark theme, phone layout.
 
