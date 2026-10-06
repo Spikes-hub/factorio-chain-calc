@@ -73,4 +73,4 @@ categories) and [Issues](../../issues).
 
 [PolyForm Noncommercial 1.0.0](LICENSE) — use, modify and share freely for **non-commercial** purposes.
 Commercial use needs the author's permission. If you publish a copy or a modified version, keep the `LICENSE`
-file with its `Required Notice` line (it links back to this project by Spikes).
+file with its `Required Notice` line (it links back to this project; author: Spikes, GitHub: [Spikes-hub](https://github.com/Spikes-hub)).
