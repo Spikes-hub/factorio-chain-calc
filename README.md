@@ -14,6 +14,11 @@ It runs on your own computer, in the browser.
 |---|---|
 | ![Recipe search](docs/images/search-en.png) | ![Inserters tab](docs/images/ins-en.png) |
 
+> **Status: early version.** It was developed and tested only with **Pyanodon's** mod set (with Bob's) on a
+> single save. Vanilla and other mod packs should mostly work, but there may be bugs. If something is off — a
+> wrong number, a missing recipe, a crash — please tell me: a [bug report](../../issues/new/choose) or a thread in
+> [Discussions](../../discussions) with your mod list helps a lot. Ideas and suggestions are welcome too.
+
 ## What it does
 
 - Builds a production tree from any recipe and solves it, loops included (byproducts, recycling, fuel and ash).
