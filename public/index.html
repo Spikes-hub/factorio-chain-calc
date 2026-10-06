@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chain Calc — калькулятор производственных цепочек</title>
+<meta name="color-scheme" content="light dark" />
+<link rel="stylesheet" href="/style.css" />
+<script src="/js/theme.js"></script>
+  <link rel="icon" type="image/png" href="/icons/calc.png" />
+</head>
+<body>
+  <!-- Вход по коду кабинета. Пока кабинета нет, страница показывает только это:
+       дампы и цепочки у каждого свои, чужого тут не видно. -->
+  <div id="loginView" class="loginView hidden">
+    <!-- Это НАСТОЯЩАЯ форма с полем типа password, а не просто <div> с input:
+         только на отправку такой формы браузер предлагает сохранить код у себя
+         (и потом сам подставляет его при следующем входе). Поэтому «Войти» —
+         это submit, а не обычная кнопка. -->
+    <form id="loginForm" class="loginCard" autocomplete="on">
+      <div class="loginBrand"><span class="brand-mark">⛭</span> Chain&nbsp;Calc</div>
+      <p class="hint">
+        Кабинет вместо регистрации: сервер выдаёт длинный код — он же и логин. По нему в кабинете
+        лежат твой дамп с иконками и все сохранённые цепочки.
+      </p>
+
+      <div id="loginStepChoice" class="loginStep">
+        <button id="createCabinetBtn" type="button" class="btn btn-primary">Создать кабинет</button>
+        <div class="loginOr">или войти по коду</div>
+        <div class="loginCodeRow">
+          <!-- type="password" + autocomplete="current-password" — так браузер
+               понимает, что это секрет, и предлагает его сохранить. Глазок рядом
+               показывает код, если его вводят руками. -->
+          <input id="loginCode" class="input codeInput" type="password" name="cabinet-code"
+                 autocomplete="current-password" spellcheck="false" autocapitalize="off"
+                 placeholder="ABCDE-FGHJK-MNPQR-STUVW-XYZ23" />
+          <button id="toggleCodeBtn" type="button" class="btn btn-ghost" title="Показать код">👁</button>
+          <button id="loginBtn" class="btn" type="submit">Войти</button>
+        </div>
+        <p class="hint">
+          Код — это и логин, и пароль: дефисы и пробелы не важны, регистр тоже.
+          Потерял код — попроси админа сервера выдать новый.
+        </p>
+        <p class="hint inactiveWarn">
+          ⚠ Если в кабинет не заходить <b class="inactiveDays">30</b> дней, он удаляется вместе с цепочками, дампом и иконками.
+        </p>
+      </div>
+
+      <div id="loginStepCode" class="loginStep hidden">
+        <p class="codeWarn">
+          <b>Сохрани код — он показывается один раз.</b> На сервере лежит только его отпечаток,
+          поэтому восстановить код нельзя. Сменить на новый можно в «Настройках».
+        </p>
+        <p class="codeWarn inactiveWarn">
+          <b>⚠ Если в кабинет не заходить <span class="inactiveDays">30</span> дней, он удаляется вместе с цепочками, дампом и иконками.</b>
+          Заходи хотя бы раз в месяц.
+        </p>
+        <div class="codeBox" id="newCodeBox"></div>
+        <div class="loginCodeRow">
+          <button id="copyCodeBtn" type="button" class="btn">Скопировать</button>
+          <button id="downloadCodeBtn" type="button" class="btn btn-ghost">Скачать файлом</button>
+          <button id="enterCabinetBtn" class="btn btn-primary" type="submit">Я сохранил код — войти</button>
+        </div>
+      </div>
+
+      <p class="error hidden" id="loginError"></p>
+      <p class="hint loginFoot" id="loginFoot"></p>
+    </form>
+  </div>
+
+  <div class="app" id="appShell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">⛭</span>
+        <div>
+          <h1>Chain&nbsp;Calc</h1>
+          <p class="tagline">калькулятор производственных цепочек · свой датасет, свой решатель</p>
+        </div>
+      </div>
+      <div class="cabinet">
+        <span id="cabinetChip" class="cabinetChip"></span>
+        <button id="logoutBtn" class="btn btn-ghost" title="Выйти из кабинета на этом устройстве">Выйти</button>
+      </div>
+      <div class="dataset-controls">
+        <span id="datasetStatus" class="dataset-status">датасет не загружен</span>
+        <label class="btn btn-ghost">
+          Загрузить дамп (.json)
+          <input type="file" id="datasetFile" accept="application/json" hidden />
+        </label>
+        <select id="datasetSelect" class="select"></select>
+        <button id="deleteDatasetBtn" class="btn btn-ghost" title="Удалить выбранный датасет">🗑</button>
+      </div>
+    </header>
+
+    <nav class="modeTabs">
+      <button class="tab active" data-mode="calc">Расчёт</button>
+      <button class="tab" data-mode="search">Поиск рецепта</button>
+      <button class="tab" data-mode="inserters">Манипуляторы</button>
+      <button class="tab" data-mode="bpchest">Сундук по блюпринту</button>
+      <button class="tab" data-mode="settings">Настройки</button>
+      <div class="modeHint" id="modeHint">таблица заводов/энергии + расчёт лент на вход и выход</div>
+    </nav>
+
+    <main class="layout fullWidthView">
+      <section class="panel buildPanel">
+        <div class="buildToolbar">
+          <button id="clearBtn" class="btn btn-ghost">Очистить</button>
+        </div>
+
+        <div id="searchView" class="view hidden">
+          <h2>Поиск рецепта</h2>
+          <p class="hint">Введи часть названия рецепта, предмета, который он делает, или того, что ему нужно (можно по-английски: ищется и внутреннее имя). Кликни по рецепту — из него соберётся цепочка и сразу откроется расчёт.</p>
+          <input id="recipeSearch" class="input recipeSearchInput" type="search" placeholder="Название рецепта или предмета (например Пластик)" autocomplete="off" />
+          <label class="recipeFilterRow" title="Дамп знает, что изучено именно в твоём сейве (unlocked_now). Без галочки поиск может предложить рецепты, которых у тебя ещё нет.">
+            <input type="checkbox" id="onlyUnlocked" /> только изученные рецепты
+            <span class="hint" id="recipeCountHint"></span>
+          </label>
+          <div id="recipeResults" class="recipeResults"></div>
+        </div>
+
+        <div id="insertersView" class="view hidden">
+          <h2>Манипуляторы: сколько предметов за раз и как быстро</h2>
+          <p class="hint">
+            Здесь задаётся всё, что калькулятор знает о манипуляторах — из этой таблицы, а не из дампа.
+            Дамп только подставляет значения по умолчанию (и умеет приносить их из сейва: пачка с учётом
+            исследований, скорость из прототипа). Что стоит в поле — то и считается в рекомендациях,
+            в «сколько нужно на завод» и в списках выбора.
+          </p>
+          <p class="hint">
+            <b>Скорость.</b> В прототипе игры она задана как <b>доля полного оборота за тик</b>
+            (<code>rotation_speed</code>), а в самой игре, в свойствах манипулятора, показана
+            <b>в градусах за секунду</b>: <code>°/сек = rotation_speed × 360 × 60 = rotation_speed × 21600</code>.
+            Сверил с игрой: 0.014 об/тик → 302 °/сек, 0.013 → 281 °/сек, 0.04 → 864 °/сек — это ровно те
+            числа, что стоят в свойствах. Один заход в секундах = <code>360 / (°/сек)</code>, тиков на оборот
+            берётся <b>чётное</b> число (манипулятор ходит двумя полуоборотами: 1/0.013 = 76.9 → 76 тиков),
+            предметов в секунду = <code>(60 / тиков) × пачка</code>. Единицу ввода выбираешь ниже — число
+            при этом одно и то же, так что можно просто переписать значение из игры.
+          </p>
+          <div class="insToolbar">
+            <label class="hint">скорость вводить в:
+              <select id="inserterSpeedUnit" class="select">
+                <option value="deg">°/сек — как в игре (градусы в секунду)</option>
+                <option value="turns">об/тик — как в прототипе игры (rotation_speed)</option>
+                <option value="sec">сек/оборот — сколько длится один заход</option>
+              </select>
+            </label>
+            <button id="resetInserterSetupBtn" class="btn btn-ghost" title="Вернуть все значения к тому, что дал дамп">Сбросить к дампу</button>
+            <span id="inserterSetupHint" class="beltActiveHint"></span>
+          </div>
+          <div id="inserterUpdateOffer" class="inserterDataWarn warn hidden"></div>
+          <div id="inserterTable" class="inserterTable"></div>
+        </div>
+
+          <div id="bpChestView" class="view hidden">
+          <h2>Сундук запроса по готовому блюпринту</h2>
+          <p class="hint">
+            Вставь строку любого своего блюпринта — сервер разберёт его, посчитает постройки и модули внутри них
+            и соберёт сундук запроса со всем, что нужно для стройки. Строка сундука сразу уезжает в буфер обмена:
+            остаётся вставить её в игру и построить сундук.
+          </p>
+          <textarea id="bpChestInput" class="bpString" rows="5"
+                    placeholder="Вставь сюда строку блюпринта (Ctrl+V)"></textarea>
+          <div class="toolRow">
+            <button id="bpChestBtn" class="btn btn-primary">Разобрать и собрать сундук</button>
+            <span class="hint">сундук просит ровно то, из чего чертёж состоит: заводы, ленты, манипуляторы, столбы и модули</span>
+          </div>
+          <h3 class="bpChestSubhead">Или собрать сами сборщики</h3>
+          <p class="hint">
+            «Сборщики всего» — чертёж, где по автомату на каждый рецепт, который делает постройку (заводы, столбы,
+            ленты, сундуки, манипуляторы, печи…). У каждого автомата сундук запроса с нужным ×4 и сундук снабжения,
+            между ними манипуляторы. Строка всего молла (~120 КБ) игра вставить не может, поэтому чертёж режется на
+            части: вставляй их по одной.
+          </p>
+          <div class="toolRow">
+            <label class="hint" for="mallChunkSize">Длина одной части:</label>
+            <select id="mallChunkSize" class="select" title="Сколько символов игра принимает во вставке. Если отвечает «ошибка импорта» — возьми меньше; если части вставляются хорошо — можно взять больше, тогда частей будет меньше.">
+              <option value="4000" selected>~4 КБ — как рабочие чертежи этапов</option>
+              <option value="8000">~8 КБ — крупнее</option>
+              <option value="20000">~20 КБ — самые крупные</option>
+            </select>
+            <button id="mallBlueprintBtn" class="btn btn-primary">Собрать блюпринт сборщиков всего</button>
+          </div>
+          <p class="hint">Целый молл сохраняется файлом <b>generated/mall-sborshchiki-ves.txt</b>: его можно
+            перетащить прямо в окно игры — так проходит даже очень длинная строка. Части — тоже файлами.</p>
+          <div id="mallBlueprintResult" class="bpResult"></div>
+          <div id="bpChestResult" class="bpResult"></div>
+        </div>
+
+        <div id="settingsView" class="view hidden">
+          <h2>Настройки</h2>
+          <p class="hint">
+            Настройки общие для всей страницы — они не привязаны к выбранному датасету и переживают перезагрузку.
+          </p>
+          <label class="recipeFilterRow"
+                 title="Работает только с дампом из сохранения: он знает, что изучено именно у тебя (unlocked_now). Полный дамп игры этого не знает — там только прототипы.">
+            <input type="checkbox" id="settingsOnlyUnlocked" /> везде показывать только изученные рецепты
+            <span class="hint" id="settingsOnlyUnlockedHint"></span>
+          </label>
+          <p class="hint">
+            На вкладке «Поиск рецепта» есть своя такая же галочка. Когда эта настройка включена, она там
+            тоже включается; но снять её на «Поиске рецепта» можно — тогда он найдёт и неизученные
+            рецепты. На «Расчёт» это не влияет: расчёт смотрит только сюда.
+          </p>
+
+          <h3 class="settingsSubhead">Вид страницы</h3>
+          <label class="recipeFilterRow"
+                 title="Прячет длинные пояснения: абзацы под заголовками, подсказки у лент и пояснительные врезки в карточках этапов. Цифры, кнопки и поля ввода остаются на месте.">
+            <input type="checkbox" id="settingsHideHints" /> убирать описания (оставить только цифры)
+          </label>
+          <p class="hint">
+            Страница становится короткой: пояснения не мешают, а всё, что нужно посчитать, остаётся
+            видно. Настройка общая для страницы и переживает перезагрузку.
+          </p>
+
+          <h3 class="settingsSubhead">Кабинет</h3>
+          <div class="cabinetBox">
+            <div class="cabinetRow">
+              <span id="cabinetInfo" class="cabinetInfo"></span>
+              <button id="rotateCodeBtn" class="btn btn-ghost"
+                      title="Старый код сразу перестанет работать, а входы на других устройствах закроются">Сменить код</button>
+              <button id="logoutBtn2" class="btn btn-ghost">Выйти</button>
+            </div>
+            <div id="cabinetNewCode" class="cabinetNewCode hidden"></div>
+            <p class="hint">
+              Код — это и логин, и пароль. На сервере лежит только его отпечаток, поэтому посмотреть код
+              заново нельзя: если потерял — жми «Сменить код» и сохрани новый.
+            </p>
+          </div>
+
+          <h3 class="settingsSubhead">Дамп и иконки на сервере</h3>
+          <p class="hint">
+            Дамп, иконки и геометрия построек лежат в папке твоего кабинета на этом сервере: страница
+            берёт их оттуда. Отправить их со своего компьютера можно батником
+            <b>«отправить дамп на сервер.bat»</b> — он упакует свежий дамп из <code>data/datasets</code>,
+            иконки из <code>public/icons</code> и геометрию из <code>data/geometry</code> в один архив и
+            пришлёт его сюда по твоему коду.
+          </p>
+          <div class="cabinetUpload">
+            <div id="cabinetDatasets" class="cabinetDatasets"></div>
+          </div>
+        </div>
+
+        <div id="calcView" class="view">
+          <!-- Красная плашка над выбором лент: на полном дампе чисел манипуляторов
+               нет вовсе (только прототипы, без бонуса исследований), поэтому
+               подбор не работает и надо вписать их вручную. -->
+          <div id="inserterDataWarn" class="inserterDataWarn hidden"></div>
+          <div class="beltStrip">
+            <span class="beltStripLabel" title="Одна лента на всю цепочку: ею считаются и вход (сколько лент нужно, чтобы прокормить заводы), и выход (сколько заводов выгружается на ленту) — на каждой вкладке, включая дочерние. Число заводов от ленты не зависит, меняется только раскладка лент.">Лента во всей цепочке:</span>
+            <!-- Rebuilt from the dataset's own transport belts when the dump has
+                 them (dump_version >= 2); these three are the vanilla fallback. -->
+            <span id="beltButtons">
+              <button class="beltBtn belt-yellow active" data-belt="15">Жёлтая · 15/с</button>
+              <button class="beltBtn belt-red" data-belt="30">Красная · 30/с</button>
+              <button class="beltBtn belt-blue" data-belt="45">Синяя · 45/с</button>
+            </span>
+            <input id="beltCustom" type="number" class="input beltCustomInput" placeholder="своя, шт/сек" title="Своя скорость ленты — тоже считается на всю цепочку, и вход, и выход" />
+            <span id="beltActiveHint" class="beltActiveHint"></span>
+            <span class="beltStripHint">только твёрдые предметы на конвейерах; трубы тут не считаются</span>
+          </div>
+          <div class="beltStrip">
+            <span class="beltStripLabel">Манипуляторы:</span>
+            <span class="beltActiveHint">пачка и скорость берутся из раздела <b>«Манипуляторы»</b> — там у каждого своё «сколько за раз» и своя скорость</span>
+            <button id="openInserterSection" class="btn btn-ghost" title="Открыть таблицу манипуляторов">Открыть раздел →</button>
+          </div>
+          <div class="calcTopRow">
+            <span id="chainIcon" class="chainIcon"></span>
+            <input id="chainName" class="input" placeholder="Название цепочки" />
+            <select id="savedChainsSelect" class="select" title="Загрузить сохранённую цепочку"></select>
+            <button id="deleteChainBtn" class="btn btn-ghost" title="Удалить выбранную сохранённую цепочку">🗑</button>
+            <button id="summaryBtn" class="btn btn-ghost">📋 Сводка</button>
+            <button id="flowDiagramBtn" class="btn btn-ghost" title="Схема цепочек: что из чего, сколько в секунду, где зацикливание и чего не хватает">🗺 Схема цепочек</button>
+            <button id="saveBtn" class="btn btn-primary">Сохранить</button>
+          </div>
+          <div id="calcTabBar" class="calcTabBar"></div>
+          <div id="tabGroupSummary"></div>
+          <div id="shareLink" class="shareLink hidden"></div>
+
+          <div class="resultsWrap">
+            <section class="panel">
+              <h2>Пересчёт</h2>
+              <p class="hint">Вход делится на группы подачи: группа — блок заводов со своим набором подающих лент, размер группы ограничивает самый «прожорливый» ресурс. Выход считается лентами выгрузки: сколько заводов помещается на одну ленту и сколько лент нужно всего. Поменяй заводы или целевую скорость и нажми «Пересчитать».</p>
+              <div class="recalcRow">
+                <label class="hint">Целевая скорость:</label>
+                <input id="recalcTargetRate" type="number" step="0.1" min="0.001" class="input recalcRateInput" />
+                <select id="recalcTargetRateUnit" class="select">
+                  <option value="sec">шт/сек</option>
+                  <option value="min">шт/мин</option>
+                </select>
+                <button id="recalcBtn" class="btn btn-primary">Пересчитать</button>
+              </div>
+              <!-- Заполняется, когда цепочка сама потребляет свой продукт
+                   (хлопкоед -> детёныши -> хлопкоед): сколько всего вырабатывается,
+                   сколько уходит обратно и какая это надбавка к чистому выходу. -->
+              <div id="netOutputNote" class="netOutputNote hidden"></div>
+            </section>
+
+            <section class="panel collapsePanel collapsed" id="makeFromPanel">
+              <div class="collapseHeader" id="makeFromHeader">
+                <h2 id="makeFromTitle">Что можно сделать из основного ресурса</h2>
+                <span class="collapseChevron">▾</span>
+              </div>
+              <div class="collapseBody">
+                <p class="hint">Рецепты, где основной ресурс (первая закладка) идёт как сырьё. Число под карточкой — сколько этого продукта выйдет при текущей выработке основного ресурса. Выбери карточку — её продукт станет первой закладкой в очереди и посчитается под свой выпуск.</p>
+                <div id="makeFromList" class="makeFromList"></div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <h2>Входящие ресурсы (сырьё)</h2>
+              <p class="hint">
+                Показывает то, что непосредственно нужно самому нижнему нерасписанному этапу цепочки (а не самый
+                первый ресурс наверху дерева) — твёрдое сырьё по лентам и, отдельным списком, жидкости/газы по трубам.
+                Для твёрдого сырья система сама предлагает оптимальное объединение по два ресурса на одну ленту (по
+                одному на каждую сторону). Можно перетащить иконку на другую, чтобы объединить их вручную по-своему.
+                Если объединённой ленты не хватит даже на один завод без простоя — появится предупреждение.
+              </p>
+              <div id="inputResourceRow" class="inputResourceRow"></div>
+              <div id="inputResourceResults" class="inputResourceResults"></div>
+            </section>
+
+            <section class="panel">
+              <h2>Результат по этапам</h2>
+              <div class="resultsToolbar">
+                <button type="button" class="btn btn-ghost" id="chainBlueprintBtn"
+                        title="Сундук запроса со всем, что нужно для постройки цепочки: заводы, ленты, манипуляторы, столбы, модули. Строка сразу копируется в буфер.">
+                  Сундук запроса: что нужно для цепочки
+                </button>
+                <span class="hint">считает стройматериалы на все этапы, собирает их в один сундук и сразу копирует строку в буфер; подробности — в свёрнутом разделе ниже</span>
+              </div>
+              <div id="chainBlueprintResult" class="bpResult"></div>
+              <div id="resultsBody" class="resultsBody">
+                <p class="hint">Соберите цепочку и нажмите «Рассчитать».</p>
+              </div>
+            </section>
+
+            <section class="panel" id="beaconsPanel">
+              <h2>Маяки</h2>
+              <p class="hint">
+                Строка — это один маяк: выбери этап, тип маяка, что в него вставлено и сколько заводов он
+                накрывает. «Все» (пустое поле) значит, что маяк достаёт до всего этапа целиком. Маяки встают
+                по своим частям этапа: заводы за пределами покрытия работают без прибавки, поэтому «сколько
+                накрывает» меняет и число заводов. Сколько таких маяков нужно, чтобы накрыть весь этап,
+                видно в строке (заводов ÷ покрытие) — а построено будет столько, сколько строк. Если маяков
+                больше, чем заводов, лишние ложатся вторым слоем, и тогда до завода достаёт несколько маяков
+                (штраф за их число считается как в игре). Числа заводов, лент и энергии пересчитываются
+                сразу, как только маяк поменяли. Маяки и их модули уезжают в сундук запроса — в чертёж
+                блока они не входят, их игрок ставит сам.
+              </p>
+              <div class="beaconsToolbar">
+                <button id="addBeaconEntryBtn" class="btn btn-ghost">+ Добавить маяк</button>
+                <button id="recalcBeaconsBtn" class="btn btn-primary">Пересчитать с маяками</button>
+              </div>
+              <div id="beaconEntriesList" class="beaconEntriesList">
+                <p class="hint msg">Соберите цепочку, чтобы добавлять маяки на её заводы.</p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/i18n-en.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "chain-calc-exporter",
+  "version": "1.1.0",
+  "title": "Chain Calc Data Exporter",
+  "author": "you",
+  "factorio_version": "2.0",
+  "description": "Dumps items, fluids, recipes and crafting machines (including modded ones like Pyanodon) to a JSON file for an external production-chain calculator, with real localised names (e.g. Russian) resolved via the translation API.",
+  "dependencies": ["? base"]
+}

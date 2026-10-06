@@ -1,0 +1,19 @@
+name: Feature request / Предложение
+description: An idea to make the calculator better / Идея, как улучшить калькулятор
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Not sure it is a good idea yet? Start a thread in Discussions instead. /
+        Не уверен, что идея удачная? Создай тему в Discussions.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like? / Что хотелось бы?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why do you need it? / Зачем это нужно?

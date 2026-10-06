@@ -1,0 +1,12 @@
+# private environment created by start.bat
+.venv/
+.python/
+.requirements.stamp
+__pycache__/
+
+# your game data
+data/*
+!data/.gitkeep
+public/icons/*
+!public/icons/.gitkeep
+generated/

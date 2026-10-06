@@ -1,0 +1,1122 @@
+:root {
+  --bg: #eef0f2;
+  --panel: #ffffff;
+  --panel-2: #f3f4f6;
+  --line: #d7dbe0;
+  --text: #1c2024;
+  --text-dim: #6b7280;
+  --accent: #d9691f;      /* belt orange, darkened a touch for light bg contrast */
+  --accent-dim: #b5570f;
+  --teal: #2470a8;        /* blueprint teal, darkened for light bg */
+  --danger: #c0392b;
+  --good: #2f8f46;
+  --belt-yellow: #a9840a;
+  --belt-red: #b23a30;
+  --belt-blue: #2f5fa8;
+  --mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+/* ---------- dark theme: the same variables, other values (see js/theme.js) ---------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14171a;
+  --panel: #1d2126;
+  --panel-2: #262b31;
+  --line: #353c44;
+  --text: #e6e9ec;
+  --text-dim: #9aa4af;
+  --accent: #f08a3c;
+  --accent-dim: #d9741f;
+  --teal: #4aa3df;
+  --danger: #e5604f;
+  --good: #4fbf6a;
+  --belt-yellow: #c9a227;
+  --belt-red: #d4574d;
+  --belt-blue: #4a7fd0;
+}
+:root { color-scheme: light; }
+:root[data-theme="dark"] .modChipDoubtful { background: rgba(201, 162, 39, 0.16); }
+:root[data-theme="dark"] .bpWarn { color: #f0c05a; }
+:root[data-theme="dark"] .calcTab:hover,
+:root[data-theme="dark"] .rnode:hover { background: rgba(255, 255, 255, 0.05); }
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea { color-scheme: dark; }
+:root[data-theme="dark"] .loginCard { box-shadow: 0 18px 60px rgba(0, 0, 0, 0.7); }
+:root[data-theme="dark"] .themeToggle,
+:root[data-theme="dark"] .langSwitch { box-shadow: none; }
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+}
+
+.app { max-width: 1500px; margin: 0 auto; padding: 44px 20px 20px; } /* top gap: room for the fixed language switch */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark {
+  font-size: 30px;
+  color: var(--accent);
+  display: inline-block;
+  animation: spin 8s linear infinite;
+}
+@keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
+.brand h1 { font-size: 18px; margin: 0; letter-spacing: 0.02em; color: var(--text); }
+.tagline { margin: 2px 0 0; color: var(--text-dim); font-size: 12px; }
+
+.dataset-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dataset-status { font-family: var(--mono); font-size: 12px; color: var(--text-dim); padding: 6px 10px; border: 1px dashed var(--line); border-radius: 4px; }
+.dataset-status.ok { color: var(--good); border-color: var(--good); }
+
+/* ---- кабинет: вход по коду ---- */
+.cabinet { display: flex; align-items: center; gap: 8px; }
+.cabinetChip { font-family: var(--mono); font-size: 12px; color: var(--accent); padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); }
+
+.loginView {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 10, 14, 0.82); padding: 20px; overflow: auto;
+}
+.loginCard {
+  width: 100%; max-width: 560px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 22px 24px; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+}
+.loginBrand { font-size: 20px; color: var(--text); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.loginBrand .brand-mark { font-size: 24px; }
+.loginStep { margin-top: 14px; }
+.loginOr { margin: 14px 0 8px; color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.loginCodeRow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.codeInput { font-family: var(--mono); letter-spacing: 0.08em; text-transform: uppercase; min-width: 320px; flex: 1; }
+.codeBox {
+  font-family: var(--mono); font-size: 20px; letter-spacing: 0.12em; color: var(--accent);
+  background: var(--panel-2); border: 1px solid var(--accent); border-radius: 6px;
+  padding: 14px 16px; margin: 10px 0; text-align: center; word-break: break-all;
+}
+.codeWarn { color: var(--danger); font-size: 13px; margin: 4px 0; }
+.loginFoot { margin-top: 14px; }
+.cabinetBox { border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: var(--panel-2); margin-bottom: 10px; }
+.cabinetRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cabinetInfo { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.cabinetNewCode {
+  margin-top: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 6px;
+  font-size: 13px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.cabinetNewCode .codeValue { font-family: var(--mono); font-size: 17px; color: var(--accent); letter-spacing: 0.1em; }
+.cabinetDatasets { display: flex; flex-direction: column; gap: 6px; }
+.cabinetDatasetRow { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+.settingsSubhead { margin: 18px 0 8px; font-size: 14px; color: var(--text); }
+
+.btn {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--sans);
+  transition: border-color .15s, background .15s;
+}
+.btn:hover { border-color: var(--accent); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn-primary:hover { background: var(--accent-dim); }
+.btn-ghost { background: transparent; }
+.btn.small { padding: 4px 10px; font-size: 12px; }
+
+.select, .input {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 4px;
+  font-family: var(--sans);
+  font-size: 13px;
+}
+.input { width: 100%; }
+.select:focus, .input:focus { outline: none; border-color: var(--teal); }
+
+.modeTabs { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.tab {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.tab.active { border-color: var(--accent); color: var(--accent); background: rgba(217,105,31,0.08); }
+.modeHint { color: var(--text-dim); font-size: 12px; margin-left: 8px; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+}
+.layout.fullWidthView { grid-template-columns: 1fr; }
+.layout.fullWidthView .buildPanel { max-width: 1100px; margin: 0 auto; width: 100%; }
+
+/* ---------- схема цепочек: отдельное окно, основную панель не трогает ----------
+   Селекторы идут парой классов НАМЕРЕННО: базовые правила .modalPanel
+   (width: 90%; max-width: 600px) лежат в файле ниже, и при равной
+   специфичности они бы победили — окно схемы открывалось маленьким по центру. */
+.modalOverlay.flowOverlay { padding: 8px; align-items: stretch; justify-content: stretch; }
+.modalPanel.flowDiagramPanel {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modalPanel.flowDiagramPanel .modalBody {
+  padding: 0; gap: 8px; overflow: auto; flex: 1 1 auto; min-height: 0;
+}
+.flowDiagramScroll {
+  flex: 0 0 auto;
+  height: 66vh;
+  min-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  /* Левой кнопкой схему ТАЩАТ, а не выделяют: курсор-«лапа», выделение текста
+     внутри картинки выключено (подписи под схемой при этом выделяются как обычно). */
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.flowDiagramScroll.flowDragging { cursor: grabbing; }
+.flowDiagramScroll svg { display: block; }
+.flowDiagramHint { margin: 0; }
+.flowZoomBar { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; margin-right: 12px; }
+/* Стили кнопок зума заданы от .modalPanel: базовое правило `.modalHeader button`
+   стоит в файле ниже и при меньшей специфичности перебивало их (кнопки
+   выглядели как простой текст). */
+.modalPanel.flowDiagramPanel .modalHeader .flowZoomBtn {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+  color: var(--text-dim); cursor: pointer; font-size: 12px; padding: 3px 9px; line-height: 1.2;
+}
+.modalPanel.flowDiagramPanel .modalHeader .flowZoomBtn:hover { border-color: var(--accent); color: var(--accent); }
+.modalPanel.flowDiagramPanel .modalHeader .flowZoomPct {
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 40px; text-align: right;
+}
+
+.flowBox { cursor: default; }
+.flowBoxLabel { font-family: var(--sans); font-size: 11px; }
+.flowBoxSub { font-family: var(--sans); font-size: 9.5px; }
+.flowEdgeLabel { font-family: var(--mono); font-size: 10px; }
+.flowBadge { font-family: var(--sans); font-size: 9.5px; }
+
+.flowLegend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; font-size: 11px; color: var(--text-dim); }
+.flowLegendKey { display: inline-flex; align-items: center; gap: 5px; }
+.flowLegendDash { width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
+.flowLegendDash.ok { background: var(--good); }
+.flowLegendDash.loop { background: var(--teal); }
+.flowLegendDash.short { background: var(--danger); }
+.flowLegendDash.outside { background: #9aa2ad; }
+.flowLegendDash.by { background: var(--accent); }
+
+.flowLoopCards { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.flowLoopCard {
+  flex: 1 1 320px; border: 1px solid var(--good); border-radius: 6px; padding: 8px 10px;
+  background: rgba(47,143,70,0.05); font-size: 12px;
+}
+.flowLoopCard.broken { border-color: var(--danger); background: rgba(192,57,43,0.05); }
+.flowLoopHead { font-weight: 600; margin-bottom: 3px; }
+.flowLoopLine { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+.flowPrimeItem { background: rgba(47,143,70,0.12); border-radius: 3px; padding: 1px 5px; display: inline-block; margin: 1px 0; }
+.flowLoopWarn { color: var(--danger); font-size: 11px; }
+.flowTotals { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.flowTotalsCol {
+  flex: 1 1 300px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  background: var(--panel-2); font-size: 12px;
+}
+.flowTotalsHead { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin-bottom: 4px; }
+.flowTotalsRow { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+.inputResCoveredLine { color: var(--good); }
+
+/* Ресурс, который уже делают свои вкладки (или контур): из списка НЕ убирается —
+   по нему можно добавить ещё рецепт и объединить с другим, — а обводится зелёным. */
+.inputResLine.coveredByChain {
+  border: 1px solid var(--good);
+  background: rgba(47,143,70,0.06);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.inputResBtn.coveredByChain {
+  border: 2px solid var(--good);
+  background: rgba(47,143,70,0.08);
+}
+.inputResCoverNote { font-size: 11px; color: var(--good); margin-top: 2px; }
+
+/* Выход ↔ кормящие группы: одна выходная лента — сколько групп входа в неё влезает. */
+.beltFeedGroups { margin-top: 4px; font-size: 11.5px; color: var(--text-dim); }
+.beltFeedGroupsHead { display: block; color: var(--text); }
+.beltFeedGroupRow { font-family: var(--mono); font-size: 11px; padding-left: 10px; }
+
+/* Ряды групп в чертеже блока: сколько групп в каждом ряду. */
+.bpRows { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.bpRowsHead { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+.bpRowsList { display: flex; flex-direction: column; gap: 6px; }
+.bpRowLine { display: flex; align-items: center; gap: 8px; }
+.bpRowLabel { font-size: 12px; color: var(--text-dim); min-width: 46px; }
+.bpRowInput { width: 84px; }
+.bpRowHint { font-size: 11px; color: var(--text-dim); }
+.bpRowsStatus { margin-left: 10px; font-size: 11px; }
+.bpRowsOk { color: var(--good); }
+.bpRowsBad { color: var(--danger); }
+.bpBuildBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Лента выхода — в блоке чертежа, под рядами групп. */
+.bpSidesPick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+.bpSidesLabel { min-width: 46px; }
+.bpSidesPick .select { padding: 5px 8px; font-size: 12px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 2px rgba(20,23,26,0.04);
+}
+.panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin: 0 0 12px; }
+.panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin: 16px 0 8px; }
+.hint { color: var(--text-dim); font-size: 12px; line-height: 1.5; }
+
+.icon {
+  vertical-align: middle;
+  margin-right: 6px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  background: rgba(0,0,0,0.035);
+  border-radius: 3px;
+}
+
+
+.hidden { display: none !important; }
+
+/* «Убирать описания» (Настройки → Вид страницы).
+   Прячем только пояснительный текст: абзацы под заголовками, подсказку раздела
+   в строке вкладок, подсказки у лент и врезки в карточках этапов. Числа, кнопки,
+   поля ввода, предупреждения (⚠) и СООБЩЕНИЯ остаются: `p.hint.msg` — это не
+   описание, а ответ страницы («Соберите цепочку», «Нет внешнего сырья»,
+   «Ищу маршруты»), и без него экран был бы пустым и молчащим. */
+body.hideHints p.hint:not(.msg),
+body.hideHints .modeHint,
+body.hideHints .beltStripHint,
+body.hideHints .beltGroupNote { display: none !important; }
+.view.hidden { display: none; }
+
+.rateTag { font-family: var(--mono); font-size: 11px; color: var(--teal); }
+
+.buildToolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+
+.ingredientSlot {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  margin-bottom: 16px; padding: 8px 10px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.ingredientSlot .ing-name { font-family: var(--mono); color: var(--text-dim); }
+
+/* ---- vertical indented recipe chain ---- */
+.rtree { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; max-width: 100%; }
+.chainNode { position: relative; }
+.chainRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+}
+.chainRow.error { color: var(--danger); border-left-color: var(--danger); font-size: 12px; padding: 10px; }
+
+.outBtns { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
+.chainMeta { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
+.ingClusters { display: flex; flex-direction: column; gap: 6px; margin-left: auto; padding-left: 12px; border-left: 1px dashed var(--line); }
+
+.ingCluster { display: flex; align-items: center; gap: 8px; }
+.ingLabel { font-family: var(--mono); font-size: 11px; color: var(--text-dim); white-space: nowrap; display: flex; align-items: center; min-width: 130px; }
+.candidateButtons { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.rnode {
+  width: 48px; height: 48px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.rnode.small { width: 30px; height: 30px; border-radius: 6px; }
+.rnode.clickable { cursor: pointer; transition: border-color .15s, transform .1s; }
+.rnode.clickable:hover { border-color: var(--accent); transform: translateY(-1px); }
+.rnode.candidate.selected { border-color: var(--accent); background: rgba(217,105,31,0.10); }
+.rnode.raw { border-style: dashed; opacity: .8; }
+.rnode img.icon { margin: 0; width: 32px !important; height: 32px !important; }
+.rnode.small img.icon { width: 20px !important; height: 20px !important; }
+
+.rnodeName { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.rnodeControls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.rnodeControls label { font-size: 10px; color: var(--text-dim); display: flex; align-items: center; gap: 2px; }
+.rnodeControls input[type=number] { width: 44px; font-size: 11px; padding: 3px 4px; }
+.chainMeta select.machineSelect, .chainMeta select.fuelSelect { font-size: 11px; padding: 3px 5px; max-width: 150px; }
+
+/* ---- recipe search and recipe cards ---- */
+.toolRow { display: flex; align-items: center; gap: 10px; margin: 14px 0; }
+.toolRow .input { padding: 10px 12px; font-size: 14px; }
+.recipeSearchInput { width: 100%; padding: 10px 12px; font-size: 14px; margin: 6px 0 4px; }
+.recipeResults { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+.pathOption {
+  padding: 14px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 8px; cursor: pointer; transition: border-color .15s, box-shadow .15s;
+}
+.pathOption:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(20,23,26,0.06); }
+.pathOption .routeLabel { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); margin-bottom: 8px; }
+.pathOption .routeSteps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.pathOption .step { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px 4px 4px; }
+.pathOptionMain { display: flex; align-items: flex-start; gap: 10px 20px; flex-wrap: wrap; }
+.routeSteps { min-width: 0; }
+.recipeIO { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-left: auto; }
+.recipeNeeds { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+.recipeYields .recipeNeedsLabel { color: var(--teal); }
+.recipeNeedsLabel { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; color: var(--text-dim); text-align: right; white-space: nowrap; }
+.recipeNeedsEmpty { font-style: italic; }
+.recipeNeed { display: inline-flex; align-items: center; gap: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px 2px 3px; white-space: nowrap; }
+.recipeNeed .needAmt { font-weight: 700; color: var(--text); }
+.recipeNeed .needProb { font-weight: 600; color: var(--text-dim); font-size: 10px; }
+/* температура жидкости в закладке: «≥950°» рядом с количеством */
+.recipeNeed .needTemp { font-weight: 600; color: var(--accent); font-size: 10px; }
+.recipeNeed .viaPipe { color: var(--teal); font-size: 9px; text-transform: uppercase; letter-spacing: .03em; }
+.recipeYields .recipeNeed { border-color: var(--teal); }
+
+/* ---- results page ---- */
+.calcTopRow { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.calcTopRow .input { flex: 1; }
+.calcTopRow select { max-width: 220px; }
+.chainIcon { display: inline-flex; align-items: center; }
+.resultsWrap { display: flex; flex-direction: column; gap: 16px; }
+
+.recalcRow { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+/* «Чистый выход»: цепочка сама потребляет свой продукт (хлопкоед -> детёныши) */
+.netOutputNote { margin-top: 8px; font-size: 12px; line-height: 1.55; background: var(--panel-2); border-left: 3px solid var(--accent); border-radius: 4px; padding: 7px 9px; }
+.netOutputNote.hidden { display: none; }
+.recalcRateInput { max-width: 140px; }
+
+.beltPanel { }
+.beltTierRow { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.beltStrip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+/* Плашка про манипуляторы над выбором лент: на полном дампе их чисел нет, и
+   подбор не работает — об этом надо сказать громко и до расчёта. */
+.inserterDataWarn { margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; font-size: 12px; line-height: 1.45; }
+.inserterDataWarn.warn { background: rgba(214, 79, 79, .12); border: 1px solid var(--danger); color: var(--text); }
+.inserterDataWarn.warn b { color: var(--danger); }
+.inserterDataWarn.ok { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-dim); }
+.inserterDataWarn a { color: var(--accent); }
+.beltStripLabel { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); font-weight: 600; }
+.beltStripHint { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+.beltBtn { border: 2px solid var(--line); background: var(--panel-2); color: var(--text); padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: padding .12s, font-size .12s, box-shadow .12s, background .12s; }
+.beltStrip .beltBtn { padding: 6px 12px; }
+.beltBtn.belt-yellow { border-color: var(--belt-yellow); }
+.beltBtn.belt-red { border-color: var(--belt-red); }
+.beltBtn.belt-blue { border-color: var(--belt-blue); }
+.beltBtn.active.belt-yellow { background: var(--belt-yellow); color: #fff; }
+.beltBtn.active.belt-red { background: var(--belt-red); color: #fff; }
+.beltBtn.active.belt-blue { background: var(--belt-blue); color: #fff; }
+/* Выбранная лента: крупнее и с яркой окантовкой, чтобы сразу было видно, по какой
+   ленте считаются все ленты в цепочке. */
+.beltBtn.active {
+  padding: 9px 18px; font-size: 13.5px; font-weight: 700;
+  box-shadow: 0 0 0 2px var(--accent), 0 3px 10px rgba(20,23,26,0.18);
+  position: relative; z-index: 1;
+}
+.beltBtn:not(.active) { opacity: .75; }
+.beltBtn:not(.active):hover { opacity: 1; }
+.beltCustomInput { max-width: 140px; }
+/* своя скорость тоже «активная лента» — подсвечиваем поле, а не кнопку */
+.beltCustomInput.active {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent);
+  font-weight: 700;
+}
+.beltActiveHint { font-size: 11px; color: var(--text-dim); }
+.beltActiveHint b { color: var(--accent); }
+.beltActiveHint.custom b { color: var(--accent); }
+
+/* пачка манипуляторов из исследований: два числа рядом с лентой */
+.beltStripNum { font-size: 11px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 4px; }
+.beltStripNum .beltCustomInput { max-width: 64px; }
+
+/* ---- блюпринт блока: панель в карточке этапа ---------------------------- */
+.bpPanelWrap { margin-top: 10px; }
+.bpPanel {
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; gap: 8px;
+}
+.bpPanelHead { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.bpPanelRow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; }
+.bpPanelRow label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); }
+.bpPanelRow select, .bpPanelRow input { font-size: 12px; }
+.bpPanelRow input.bpCount { width: 72px; }
+.bpString {
+  width: 100%; font-family: monospace; font-size: 11px; line-height: 1.4;
+  background: rgba(0, 0, 0, 0.25); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px; resize: vertical; word-break: break-all;
+}
+.bpWarn { font-size: 12px; color: #e8b34b; }
+.bpWarns { display: flex; flex-direction: column; gap: 4px; }
+/* Завод этапа, который в игре не скрафтить: это не мелочь оформления — в чертёж и
+   в сундук запроса уезжает постройка, которой у игрока быть не может. Поэтому
+   красным и прямо под списком заводов. */
+.machineCraftWarn {
+  margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45;
+  background: rgba(214, 79, 79, .12); border: 1px solid var(--danger); color: var(--text);
+}
+.machineCraftWarn .machineReplaceBtn { margin-left: 4px; }
+/* Отчёт по маякам: числа о покрытии и замечания сервера — отдельным блоком,
+   чтобы не сливались с предупреждениями о нехватке места. */
+.bpBeacons { display: flex; flex-direction: column; gap: 4px; }
+.bpDetails summary { cursor: pointer; font-size: 12px; color: var(--text-dim); }
+.bpDetails pre { font-size: 11px; white-space: pre-wrap; margin: 6px 0 0; }
+
+/* Сундук запроса на всю цепочку: это раздел, а не простыня на пол-экрана.
+   Свёрнутый он занимает одну строку, раскрывается нажатием по заголовку. */
+.chainChest {
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.12);
+}
+.chainChest > summary {
+  font-size: 13px; color: var(--text); font-weight: 600;
+  list-style: none; display: flex; align-items: center; gap: 6px;
+}
+.chainChest > summary::-webkit-details-marker { display: none; }
+.chainChest > summary::before { content: "▸"; color: var(--accent); }
+.chainChest[open] > summary::before { content: "▾"; }
+.chainChest > summary:hover { color: var(--accent); }
+.chainChest[open] > summary { margin-bottom: 8px; }
+.chainChest .bpString { margin-top: 6px; }
+.chainChest .bpList { margin: 8px 0 0; padding-left: 18px; }
+
+/* ---- раздел «Манипуляторы»: пачка и скорость каждого --------------------- */
+.insToolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 14px; }
+.insToolbar .select { font-size: 12px; }
+.inserterTable { overflow-x: auto; }
+.insTable { border-collapse: collapse; width: 100%; font-size: 12px; }
+.insTable th {
+  text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-dim); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.insTable td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.insTable tr:hover td { background: var(--panel-2); }
+.insTable .insName { white-space: nowrap; font-family: var(--mono); }
+.insTable .insCalc { font-family: var(--mono); color: var(--text-dim); white-space: nowrap; }
+.insTable .insTotal b { color: var(--accent); font-size: 13px; }
+.insInput { width: 84px; font-family: var(--mono); font-size: 12px; padding: 3px 5px; }
+.insInput.insSpeed { width: 96px; }
+.insTag {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim);
+  border: 1px solid var(--line); border-radius: 999px; padding: 0 5px; white-space: nowrap;
+}
+.insRowBad .insTotal b { color: var(--danger); }
+/* Кликабельные заголовки: сортировка по столбцу (манипуляторы без галочки в
+   сортировке не участвуют и всегда идут ниже). */
+.insTable th.insSortable { cursor: pointer; user-select: none; }
+.insTable th.insSortable:hover { color: var(--accent); }
+.insTable th.insSortable.active { color: var(--accent); }
+.insSortArrow { margin-left: 4px; font-size: 9px; opacity: .55; }
+.insTable th.insSortable.active .insSortArrow { opacity: 1; }
+/* Снята галочка «учитывать»: строка остаётся (галочку можно вернуть), но видно,
+   что манипулятор не участвует в рекомендациях и в списках выбора. */
+.insRowOff td { opacity: .5; }
+.insRowOff .insUseCell { opacity: 1; }
+.insTagOff { color: var(--danger); border-color: currentColor; }
+.insUseCell { text-align: center; }
+.insUse { width: 15px; height: 15px; cursor: pointer; }
+
+/* collapsible panel (e.g. "что можно сделать из …") */
+.collapseHeader { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; user-select: none; }
+.collapseHeader h2 { margin: 0; }
+.collapseChevron { color: var(--text-dim); font-size: 12px; transition: transform .15s; }
+.collapsePanel.collapsed .collapseChevron { transform: rotate(-90deg); }
+.collapsePanel.collapsed .collapseBody { display: none; }
+.collapseBody { margin-top: 12px; }
+.makeFromList { display: flex; flex-wrap: wrap; gap: 10px; }
+.makeFromCard { cursor: pointer; }
+.makeFromCard:hover { border-color: var(--accent); background: rgba(217,105,31,0.08); }
+.makeFromCard .makeFromRate { margin-top: 2px; font-size: 10px; font-weight: 700; color: var(--teal); }
+
+/* ---- input resources (draggable, pairable) ---- */
+.inputResourceRow { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.inputResBtn {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 10px; background: var(--panel-2); border: 2px solid var(--line);
+  border-radius: 8px; cursor: grab; font-size: 10px; text-align: center; width: 76px;
+  user-select: none;
+}
+.inputResBtn.dragOver { border-color: var(--accent); background: rgba(217,105,31,0.10); }
+.inputResBtn .pairTag { color: var(--accent); font-size: 9px; }
+.inputResourceResults { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.inputResLine { font-size: 12px; line-height: 1.5; }
+.inputResSectionLabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #888); margin-top: 8px; }
+.inputResWarn { color: var(--danger); font-weight: 600; }
+
+/* ---- staged results grouping ---- */
+.stageGroup { margin-bottom: 20px; }
+.stageGroup:last-child { margin-bottom: 0; }
+.stageTitle { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); margin: 0 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.stageCards { display: flex; flex-wrap: wrap; gap: 12px; }
+.stageCard {
+  flex: 1 1 320px; min-width: 300px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+  background: var(--panel-2);
+}
+.stageCardHead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.stageCardHead .name { font-weight: 600; font-size: 13px; }
+.stageCardStats { display: flex; flex-wrap: wrap; gap: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+.stageCardStats b { color: var(--text); }
+.stageCard select.machineSelectResult, .stageCard select.fuelSelectResult { font-size: 11px; padding: 3px 6px; margin-bottom: 8px; margin-right: 4px; }
+.beltSubLabel { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin: 10px 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.beltSubLabel:first-of-type { margin-top: 4px; }
+.beltGroupNote { font-size: 11px; line-height: 1.5; color: var(--text); background: var(--panel-2); border-left: 3px solid var(--accent); border-radius: 4px; padding: 6px 8px; margin: 2px 0 6px; }
+
+.resultsBody { max-height: none; overflow: visible; }
+table.resultTable { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+table.resultTable th, table.resultTable td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.resultTable th { color: var(--text-dim); font-weight: 500; text-transform: uppercase; font-size: 10px; }
+.tag-raw { color: var(--teal); }
+.summaryLine { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+
+.beltFillBar { position: relative; width: 90px; height: 14px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin: 0 4px; }
+.beltFillBar > div { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+.beltFillBar.over > div { background: var(--danger); }
+.beltNote { color: var(--text-dim); font-size: 11px; }
+.beltList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.beltList li { line-height: 1.5; }
+.fullBeltBtn, .fullBeltMultiBtn {
+  margin-left: 6px; border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  padding: 2px 8px; border-radius: 999px; font-size: 10px; cursor: pointer; vertical-align: middle;
+  text-transform: none; letter-spacing: normal;
+}
+.fullBeltBtn:hover, .fullBeltMultiBtn:hover { background: rgba(217,105,31,0.10); }
+
+/* ---- group boxes: outlined = a GROUP (shared belt / feeding groups / combined
+   output). No box = a single, standalone line. ---- */
+.beltGroupBox {
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: rgba(217,105,31,0.05);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.beltGroupBox .beltGroupNote { background: transparent; margin: 0; }
+/* a shared belt nested inside a feeding group */
+.beltGroupBox.inner { border-color: var(--teal, #2a9d8f); background: rgba(42,157,143,0.06); }
+.beltGroupBox.inner .beltGroupBoxLabel { color: var(--teal, #2a9d8f); }
+.beltGroupNote.warn { border-left-color: var(--danger); }
+.beltGroupNote.alt { border-left-color: var(--teal, #2a9d8f); color: var(--text-dim); }
+/* manual "заводов в группе" field, sits in the group box header */
+.feedSizeBox { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); text-transform: none; letter-spacing: 0; font-weight: 400; }
+.feedGroupInput {
+  width: 68px; padding: 3px 6px; text-align: center;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); color: var(--text); font: inherit;
+}
+.feedGroupInput:focus { outline: none; border-color: var(--accent); }
+.beltBtnRow { display: flex; justify-content: flex-start; margin-top: 6px; }
+.beltGroupBoxHead {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; flex-wrap: wrap;
+}
+.beltGroupBoxLabel {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--accent); font-weight: 600;
+}
+.fullBeltGroupBtn {
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  padding: 3px 10px; border-radius: 999px; font-size: 10px; cursor: pointer;
+  white-space: nowrap; font-weight: 600;
+}
+.fullBeltGroupBtn:hover { background: var(--accent-dim); border-color: var(--accent-dim); }
+
+/* «Пепел: отдельно / вместе с выходом» — тот же вид, что у «Приоритета» */
+.ashToggleBtn {
+  margin-left: 8px; border: 1px solid var(--border); background: transparent; color: var(--text-dim);
+  padding: 2px 9px; border-radius: 999px; font-size: 10px; cursor: pointer;
+  text-transform: none; letter-spacing: normal; font-weight: 600;
+}
+.ashToggleBtn:hover { border-color: var(--accent); color: var(--accent); }
+.ashToggleBtn.active { border-color: var(--teal, #2a9d8f); background: var(--teal, #2a9d8f); color: #fff; }
+.ashToggleBtn.active:hover { filter: brightness(0.92); color: #fff; }
+.stageRawSplit { margin-top: 3px; }
+
+/* ---- манипуляторы и погрузчики: свой выпадающий список с иконками --------- */
+.inserterRowWrap { margin-top: 6px; }
+.inserterRow {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding-top: 6px; border-top: 1px dashed var(--line);
+}
+.inserterRow + .inserterRow { border-top: none; padding-top: 2px; }
+.inserterLabel { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); font-weight: 600; margin-right: 4px; }
+/* Нативный <select> не умеет показывать картинки в пунктах (Chrome на Windows их
+   игнорирует), поэтому список свой: кнопка + раскрывающаяся панель. */
+.inserterPicker { position: relative; display: inline-block; }
+.inserterPickBtn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 8px 3px 6px; font-size: 11px; font-family: var(--mono);
+  cursor: pointer; max-width: 260px;
+}
+.inserterPickBtn:hover, .inserterPicker.open .inserterPickBtn { border-color: var(--accent); }
+.inserterPickLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inserterPickSpeed { color: var(--text-dim); }
+.inserterCaret { color: var(--text-dim); font-size: 9px; }
+.inserterPicker.open .inserterCaret { transform: rotate(180deg); }
+.inserterMenu {
+  display: none;
+  position: absolute; top: 100%; left: 0; z-index: 30;
+  margin-top: 4px; min-width: 100%; max-height: 300px; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(20,23,26,0.18); padding: 4px;
+}
+.inserterPicker.open .inserterMenu { display: block; }
+.inserterMenuGroup {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-dim); font-weight: 700; padding: 5px 8px 2px;
+}
+.inserterMenuHint {
+  font-size: 10px; color: var(--text-dim); padding: 4px 8px 2px;
+  border-bottom: 1px solid var(--line); margin-bottom: 2px;
+}
+.inserterOption {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: none; border-radius: 5px; color: var(--text);
+  padding: 4px 8px; font-size: 11px; font-family: var(--mono);
+  cursor: pointer; text-align: left; white-space: nowrap;
+}
+.inserterOption:hover { background: var(--panel-2); }
+.inserterOption.active { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--accent); }
+.inserterOption.active .inserterOptionName { font-weight: 700; }
+/* Варианты, которыми поток закрывается ОДНИМ устройством, видно сразу */
+.inserterOption.enough { box-shadow: inset 2px 0 0 var(--good); }
+.inserterOption.active.enough { box-shadow: inset 0 0 0 1px var(--accent), inset 2px 0 0 var(--good); }
+.inserterOptionName { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.inserterOptionHand {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .04em; color: var(--teal, #2470a8);
+  border: 1px solid currentColor; border-radius: 999px; padding: 0 5px; white-space: nowrap;
+}
+.inserterPickBtn .inserterOptionHand { font-size: 9px; }
+.inserterOptionSpeed { color: var(--text-dim); }
+.inserterOption.active .inserterOptionSpeed { color: var(--accent); }
+.inserterOptionCount {
+  min-width: 44px; text-align: right; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.inserterOptionCount.one { color: var(--good); }
+.inserterOptionCount.many { color: var(--danger); }
+.inserterRowTotal { border-top: 1px dashed var(--line); }
+.inserterCount {
+  margin-left: 6px; font-size: 11px; font-weight: 700; color: var(--accent);
+  font-family: var(--mono); white-space: nowrap;
+}
+
+/* «Приоритет» у заголовков «Вход (что подвозить)» / «Выход (что вывозить)»:
+   согласует между собой подачу и выгрузку (сейчас они считаются по разным
+   правилам, поэтому группы у них не совпадают). Выключенная — контурная,
+   включённая — заливка, чтобы состояние читалось сразу. */
+.beltPriorityBtn {
+  margin-left: 8px; border: 1px solid var(--border); background: transparent; color: var(--text-dim);
+  padding: 2px 9px; border-radius: 999px; font-size: 10px; cursor: pointer;
+  text-transform: none; letter-spacing: normal; font-weight: 600;
+}
+.beltPriorityBtn:hover { border-color: var(--accent); color: var(--accent); }
+.beltPriorityBtn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+.beltPriorityBtn.active:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: #fff; }
+
+/* ---- editable fluid/gas rate fields ---- */
+.fluidRateInput {
+  width: 78px; padding: 2px 6px; margin: 0 2px;
+  border: 1px solid var(--accent); border-radius: 6px;
+  background: var(--panel); color: var(--text);
+  font-family: var(--mono); font-size: 12px; text-align: right;
+}
+.fluidRateInput:focus {
+  outline: none; border-color: var(--accent-dim);
+  box-shadow: 0 0 0 2px rgba(217,105,31,0.15);
+}
+.fluidRateUnit { font-size: 11px; color: var(--text-dim); margin-left: 1px; }
+.fluidList li { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
+.shareLink { margin-top: 8px; font-family: var(--mono); font-size: 12px; padding: 8px; background: var(--panel-2); border-radius: 4px; word-break: break-all; }
+.shareLink.hidden { display: none; }
+
+.error { color: var(--danger); font-size: 12px; margin-top: 8px; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+
+.calcTabBar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.calcTab {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+  border: 2px solid var(--line); border-radius: 8px; background: var(--panel-2);
+  cursor: pointer; min-width: 40px;
+}
+.calcTab.active { border-color: var(--accent); background: rgba(217,105,31,0.08); }
+.calcTab .calcTabClose { color: var(--text-dim); font-size: 12px; padding: 0 2px; }
+.calcTab .calcTabClose:hover { color: var(--danger); }
+.calcTab img.icon { margin: 0; }
+
+.inputResBtn.clickableForChain { cursor: pointer; }
+.inputResBtn .toChainHint { font-size: 9px; color: var(--accent); margin-top: 2px; }
+
+.modalOverlay {
+  position: fixed; inset: 0; background: rgba(20,23,26,0.5);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modalPanel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  max-width: 600px; width: 90%; max-height: 80vh; overflow: auto; padding: 16px;
+  box-shadow: 0 12px 40px rgba(20,23,26,0.3);
+}
+.modalHeader { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.modalHeader button { background: transparent; border: none; color: var(--text-dim); font-size: 16px; cursor: pointer; }
+.modalHeader button:hover { color: var(--danger); }
+.modalBody { display: flex; flex-direction: column; gap: 8px; }
+
+.calcTab.grouped { border-color: var(--teal); }
+.calcTab.dragOver { border-color: var(--accent); background: rgba(217,105,31,0.15); }
+.groupSummaryPanel { margin-bottom: 16px; }
+.groupMembers { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.groupMemberRow { font-family: var(--mono); font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.groupMemberRow.active { color: var(--text); font-weight: 600; }
+
+.summaryModalPanel { max-width: 96vw; width: 96vw; }
+.summaryTable { display: flex; flex-wrap: wrap; gap: 12px; }
+.summaryCol {
+  flex: 1 1 260px; min-width: 240px; max-width: 340px; border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; background: var(--panel-2); display: flex; flex-direction: column; gap: 10px;
+}
+.summaryCol.groupedCol { border-color: var(--teal); }
+.summaryColHead { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.summaryColHead .hint { width: 100%; }
+.summaryStages, .summaryRaw { display: flex; flex-direction: column; gap: 5px; }
+.summaryRawRow { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 11px; flex-wrap: wrap; }
+
+/* a stage in the summary: header line + groups / feed belts / output */
+.summaryStageRow {
+  display: flex; flex-direction: column; gap: 3px;
+  font-family: var(--mono); font-size: 11px;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel);
+}
+.sumStageHead { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 2px; }
+.sumLine { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.sumTag {
+  flex: 0 0 auto; min-width: 58px;
+  font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-dim);
+}
+.sumManual { font-size: 9px; color: var(--teal, #2a9d8f); border: 1px solid var(--teal, #2a9d8f); border-radius: 4px; padding: 0 4px; }
+.sumBelts { display: flex; flex-direction: column; gap: 2px; margin: 1px 0 2px 58px; }
+.sumBeltRow { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+.sumBeltRow.shared { color: var(--text); }
+.sumBeltRow.warnRow { color: var(--danger); }
+.sumPlus { color: var(--accent); font-weight: 700; }
+.summarySectionLabel { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
+
+/* module/beacon effects on a stage card (they used to live in the removed tree view) */
+.stageEffects { display: flex; gap: 6px; flex-wrap: wrap; }
+.stageEffects label {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; color: var(--text-dim);
+  border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px;
+  background: var(--panel-2);
+}
+.stageEffects input {
+  width: 46px; border: none; background: transparent; color: var(--text);
+  font: inherit; text-align: right; padding: 0;
+}
+.stageEffects input:focus { outline: none; }
+.stageEffects input:disabled { color: var(--text-dim); opacity: .5; }
+
+/* ---------- modules on a stage card (picked BY TYPE, see app.js MODULES) ---------- */
+.stageModules { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.stageModulesRow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.addModuleBtn {
+  font-size: 11px; padding: 3px 8px; cursor: pointer;
+  border: 1px dashed var(--line); border-radius: 6px;
+  background: var(--panel-2); color: var(--text-dim);
+}
+.addModuleBtn:hover { border-color: var(--accent); color: var(--accent); }
+.modChip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 4px 2px 6px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+}
+.modChipMissing { border-color: var(--danger); color: var(--danger); }
+.modChipName { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* значок+название модуля — кликабельны: по клику выбор версии (МК1…МК4) */
+.modChipMain {
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer; border-radius: 4px; padding: 0 2px;
+}
+.modChipMain:hover { background: rgba(217,105,31,0.10); }
+.modSwap { font-size: 9px; color: var(--accent); opacity: .8; }
+.modChipMain:hover .modSwap { opacity: 1; }
+.modOptionCurrent { border-color: var(--accent); background: rgba(217,105,31,0.06); }
+/* модуль, который завод не принимает (allowed_module_categories из дампа) */
+.modOptionRejected { opacity: .5; cursor: not-allowed; }
+.modOptionRejected:hover { border-color: var(--line); }
+.modOptionWhy { font-size: 10px; color: var(--danger); margin: 2px 0 4px; }
+.stageModulesWarn {
+  font-size: 10px; color: var(--danger); font-family: var(--mono);
+  border-left: 2px solid var(--danger); padding-left: 6px; margin-top: 3px;
+}
+.modChip input.modQty {
+  width: 38px; text-align: right; font: inherit; font-family: var(--mono);
+  border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
+  color: var(--text); padding: 0 2px;
+}
+.modChip input.modQty:focus { outline: none; border-color: var(--accent); }
+.modRemoveBtn {
+  border: none; background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 11px; padding: 0 2px; line-height: 1;
+}
+.modRemoveBtn:hover { color: var(--danger); }
+.stageModulesInfo { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+.stageModulesInfo.modOver { color: var(--danger); }
+.stageEffectsLabel { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin-bottom: 3px; }
+
+/* colour-coded type dots, used when a module has no icon in the dump */
+.modDot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--text-dim); }
+.modDot.mod-speed { background: var(--belt-blue); }
+.modDot.mod-productivity { background: var(--danger); }
+.modDot.mod-efficiency { background: var(--good); }
+.modDot.mod-quality { background: #8e44ad; }
+
+/* the "pick a module by type" modal */
+.modalPanelWide { max-width: 760px; }
+.modPickerBody { gap: 14px; }
+.modGroup { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--panel-2); }
+.modGroupHead { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.modGroupItems { display: flex; flex-wrap: wrap; gap: 8px; }
+.modOption {
+  flex: 1 1 200px; min-width: 190px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--panel);
+}
+.modOption:hover { border-color: var(--accent); }
+.modOption.disabled { opacity: .45; cursor: not-allowed; }
+.modOption.disabled:hover { border-color: var(--line); }
+.modOptionHead { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.modOptionFx { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin: 4px 0; }
+.modSrc { opacity: .7; }
+.modEditBtn {
+  font-size: 10px; padding: 1px 6px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); color: var(--text-dim);
+}
+.modEditBtn:hover { color: var(--accent); border-color: var(--accent); }
+.modEditor { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.modEditor label {
+  display: inline-flex; align-items: center; gap: 2px; font-size: 10px; color: var(--text-dim);
+  border: 1px solid var(--border, var(--line)); border-radius: 5px; padding: 1px 4px; background: var(--panel-2);
+}
+.modEditor input { width: 42px; text-align: right; border: none; background: transparent; color: var(--text); font: inherit; }
+.modEditor input:focus { outline: none; }
+.modSaveFxBtn {
+  font-size: 10px; padding: 2px 8px; cursor: pointer;
+  border: 1px solid var(--accent); border-radius: 5px; background: var(--accent); color: #fff;
+}
+.sumModules { font-family: var(--mono); font-size: 10px; color: var(--teal); margin: 1px 0 2px 0; }
+.modPickerTools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.modPickerTools .input { flex: 1 1 220px; font-size: 12px; padding: 4px 8px; }
+.modShowAll { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.recipeFilterRow { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); margin-top: 8px; cursor: pointer; }
+.recipeFilterRow.hidden { display: none; }
+/* Настройки: предупреждение, что дамп не знает, что изучено, — настройка не сработает */
+.recipeFilterRow .hint.warn { color: var(--danger); max-width: 720px; }
+.addModuleBtn:disabled { opacity: .45; cursor: not-allowed; border-style: solid; }
+.addModuleBtn:disabled:hover { border-color: var(--line); color: var(--text-dim); }
+
+/* ---------- модули и маяки в карточках ---------- */
+/* Маяки живут в своём разделе внизу (см. ниже), но подпись «маяк/завод» нужна и
+   в строках модулей, поэтому класс общий. */
+.beaconLabel { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.stageBaseEffect { color: var(--teal); }
+.modOthers { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; margin-top: 4px; background: var(--panel-2); }
+.modOthers > summary { cursor: pointer; font-size: 12px; color: var(--text-dim); font-weight: 600; }
+.modOthers > summary:hover { color: var(--accent); }
+.modOthers .modGroup { margin-top: 8px; }
+.modEvidence { font-family: var(--mono); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.modChipDoubtful { border-color: var(--belt-yellow); background: #fdf6e3; }
+.modWarn { color: var(--belt-yellow); font-size: 10px; }
+
+/* вещество, которое ходит по кругу внутри рецепта (Формамид → метанол) */
+.circulatingLabel { color: var(--teal); margin-top: 6px; }
+.circulatingList { border-left: 2px solid var(--teal); padding-left: 8px; }
+.circulatingList .hint { opacity: 0.8; }
+
+/* ---------- Маяки: раздел внизу страницы, строки-маяки ---------- */
+#beaconsPanel.hidden { display: none; }
+.beaconsToolbar { display: flex; gap: 8px; margin: 8px 0 12px; }
+.beaconEntriesList { display: flex; flex-direction: column; gap: 14px; }
+
+/* Этап, к которому относятся строки маяков: заголовок и его строки. */
+.beaconStage { display: flex; flex-direction: column; gap: 6px; }
+.beaconStageHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.beaconStageHead b { font-size: 13px; }
+.beaconStageHead .addBeaconRowBtn { font-size: 11px; padding: 2px 8px; }
+
+/* Строка = один маяк: [этап] [тип] [покрывает заводов] [модули] [✕] и подпись. */
+.beaconRow {
+  display: flex; flex-direction: column; gap: 5px;
+  border: 1px solid var(--line); border-left: 3px solid var(--teal); border-radius: 6px;
+  padding: 8px 10px; background: var(--panel-2);
+}
+.beaconRowMain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.beaconRow .beaconFactorySelect { font-size: 12px; padding: 3px 6px; min-width: 190px; max-width: 320px; }
+.beaconRow select.beaconSelect { font-size: 11px; padding: 3px 5px; margin: 0; }
+.beaconCovers {
+  width: 62px; text-align: right; font: inherit; font-family: var(--mono); font-size: 12px;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--text); padding: 2px 4px;
+}
+.beaconCovers:focus { outline: none; border-color: var(--teal); }
+.beaconRowRemove {
+  margin-left: auto;
+  width: 22px; height: 22px; line-height: 20px; text-align: center; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%; background: var(--panel);
+  color: var(--text-dim); cursor: pointer; font-size: 12px;
+}
+.beaconRowRemove:hover { color: var(--danger); border-color: var(--danger); }
+
+/* Controls in the top-right corner on every screen: theme toggle + language switch (EN / RU) */
+.topControls {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.themeToggle {
+  width: 30px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.themeToggle:hover { color: var(--accent); border-color: var(--accent); }
+.langSwitch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.langSwitch button {
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.langSwitch button + button { border-left: 1px solid var(--line); }
+.langSwitch button:hover { color: var(--text); }
+.langSwitch button.active { background: var(--accent); color: #fff; }
+
+/* ---------- phones and narrow windows ----------
+   The page was built for a wide screen: rows of fixed-width controls pushed it sideways (the whole
+   document became wider than the phone). Below 760px everything is allowed to shrink and wrap, wide
+   tables and code scroll inside their own box instead of widening the page, and controls get
+   finger-sized. */
+@media (max-width: 760px) {
+  html, body { overflow-x: hidden; }
+  .app { padding: 44px 10px 16px; }
+
+  /* nothing may be wider than the screen */
+  .layout > *, .panel, .view, .buildPanel, .modalPanel, section, div { min-width: 0; }
+  img, svg, canvas, video { max-width: 100%; }
+  textarea, input:not([type="checkbox"]):not([type="radio"]), select { max-width: 100%; }
+  pre, code, .codeBox, .bpString { overflow-x: auto; word-break: break-all; white-space: pre-wrap; }
+  table { display: block; max-width: 100%; overflow-x: auto; }
+
+  /* header: brand, then the cabinet, then the dump controls, each on its own row */
+  .topbar { gap: 10px; padding-bottom: 12px; margin-bottom: 12px; }
+  .brand { width: 100%; }
+  .tagline { font-size: 12px; }
+  .cabinet, .dataset-controls { width: 100%; flex-wrap: wrap; gap: 8px; }
+  .dataset-controls .select, #datasetSelect { flex: 1 1 160px; min-width: 0; }
+  .dataset-status { flex: 1 1 100%; }
+
+  /* mode tabs scroll sideways like a phone tab bar */
+  .modeTabs { overflow-x: auto; flex-wrap: nowrap; gap: 6px; padding-bottom: 6px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+  .tab { flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; }
+  .modeHint { display: none; }
+
+  /* panels and rows */
+  .panel { padding: 12px; }
+  .buildToolbar, .calcTopRow, .toolRow { flex-wrap: wrap; gap: 8px; }
+  .toolRow > .input { flex: 1 1 100%; min-width: 0; }
+  .calcTopRow > .input, .calcTopRow > select { flex: 1 1 140px; min-width: 0; }
+  .beltStrip { flex-wrap: wrap; gap: 6px; }
+  .beltBtn { white-space: normal; text-align: left; }
+  .beltStripHint, .beltActiveHint { flex: 1 1 100%; text-align: left; }
+  .modalPanel { width: 96%; max-width: 96vw; max-height: 92vh; }
+  .modalHeader { flex-wrap: wrap; gap: 6px; }
+  .loginCard { padding: 16px; }
+  .loginCodeRow { flex-wrap: wrap; }
+
+  /* fingers: bigger targets, and 16px text in fields so the browser does not zoom the page on focus */
+  .btn, button, select { min-height: 34px; }
+  input, select, textarea { font-size: 16px; }
+  .tab, .btn { font-size: 14px; }
+}
+
+@media (max-width: 760px) {
+  /* a fixed bar would hide the text under it while scrolling: on a phone it scrolls away with the page */
+  .topControls { position: absolute; }
+}
+
+@media (max-width: 420px) {
+  .app { padding: 44px 6px 12px; }
+  .panel { padding: 10px; border-radius: 8px; }
+  .topControls { top: 6px; right: 8px; gap: 6px; }
+}

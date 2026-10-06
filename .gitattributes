@@ -1,0 +1,7 @@
+# Windows scripts keep CRLF (cmd breaks on LF-only labels), Linux files keep LF.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.sh text eol=lf
+*.service text eol=lf
+nginx.conf text eol=lf
+.env.example text eol=lf

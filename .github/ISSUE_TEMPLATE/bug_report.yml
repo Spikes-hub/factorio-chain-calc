@@ -1,0 +1,37 @@
+name: Bug report / Баг-репорт
+description: Something is wrong or crashes / Что-то работает неправильно или падает
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Russian — both are fine. / Можно писать по-английски или по-русски.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / Что произошло?
+      description: What you did, what you expected, what you got. / Что делал, что ожидал, что получил.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where? / Где?
+      options:
+        - Calculator page / Страница калькулятора
+        - start.bat (server start / запуск сервера)
+        - dump_full.bat
+        - dump_from_save.bat
+        - Blueprints / Блюпринты
+        - Other / Другое
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Windows, browser, Factorio version, main mods / Windows, браузер, версия Factorio, основные моды
+  - type: textarea
+    id: log
+    attributes:
+      label: Error text or screenshot / Текст ошибки или скриншот
+      render: text
