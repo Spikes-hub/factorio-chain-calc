@@ -1,0 +1,15 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggest a feature or an improvement. One idea per thread, please.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why do you need it? (your mods, what you build)

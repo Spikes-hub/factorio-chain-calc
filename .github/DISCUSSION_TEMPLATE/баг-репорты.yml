@@ -1,0 +1,20 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Что-то работает неправильно? Расскажи, что случилось. Лучше всего помогает случай, который можно повторить.
+  - type: textarea
+    id: what
+    attributes:
+      label: Что произошло и что ожидалось?
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Windows, браузер, версия Factorio, основные моды
+  - type: textarea
+    id: log
+    attributes:
+      label: Текст ошибки, скриншот или рецепт/завод, с которыми это было
+      render: text

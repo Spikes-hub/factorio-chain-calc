@@ -1,0 +1,15 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Предложи функцию или улучшение. Одна идея — одна тема.
+  - type: textarea
+    id: idea
+    attributes:
+      label: Что хотелось бы?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Зачем это нужно? (твои моды, что строишь)
