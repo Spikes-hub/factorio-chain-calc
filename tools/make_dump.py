@@ -19,12 +19,6 @@ Used by dump_full.bat and dump_from_save.bat (they prepare Python first):
     python tools/make_dump.py save [--save NAME]
     python tools/make_dump.py cleanup         (puts the mods folder back after an aborted run)
 
-With --upload (dump_full_to_server.bat / dump_from_save_to_server.bat) the finished dump, the icons
-and the geometry are packed into one zip and sent to the calculator server: the script asks for the
-cabinet code shown on the site at the very end; the server unpacks the archive into that cabinet
-and deletes it. The server address comes from --server, CHAIN_CALC_SERVER, server.txt next to the
-script folder, or is asked once and remembered in data/.server-url.txt.
-
 Icons and building geometry depend only on the game build and the mod set, not on the map: they are
 dumped (a game launch each) once and reused while the mod set stays the same (data/.assets-cache.json);
 --rebuild-icons forces them. So a repeated full dump launches the game twice, a repeated save dump once.
@@ -58,9 +52,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MOD_NAME = "chain-calc-exporter"
 STATE_FILE = ROOT / "data" / ".dump-state.json"
 PATH_FILE = ROOT / "data" / ".factorio-path.txt"
-SERVER_FILE = ROOT / "data" / ".server-url.txt"
 ASSETS_FILE = ROOT / "data" / ".assets-cache.json"
-SERVER_HINT = ROOT / "server.txt"
 DATASETS = ROOT / "data" / "datasets"
 GEOMETRY = ROOT / "data" / "geometry"
 BACKUP_SUFFIX = ".chaincalc-backup"
@@ -460,96 +452,6 @@ def summary(dataset: Path, knows_unlocked: bool) -> None:
         + ("" if knows_unlocked else "\nЭтот дамп не знает, что изучено (показываются все рецепты)."))
 
 
-# ----------------------------------------------------------------------------- sending to the server
-
-def _read_server_file(path: Path) -> str:
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#"):
-                return line
-    except OSError:
-        pass
-    return ""
-
-
-def resolve_server(given: str | None) -> str:
-    server = (given or os.environ.get("CHAIN_CALC_SERVER") or _read_server_file(SERVER_HINT)
-              or _read_server_file(SERVER_FILE)).strip()
-    if "example.com" in server:          # the placeholder shipped in server.txt
-        server = _read_server_file(SERVER_FILE)
-    if server:
-        return server
-    if not sys.stdin or not sys.stdin.isatty():
-        raise Fail("Set the server address: --server https://host (or CHAIN_CALC_SERVER).",
-                   "Укажи адрес сервера: --server https://адрес (или CHAIN_CALC_SERVER).")
-    say("Address of the calculator site (e.g. https://calc.example.com):",
-        "Адрес сайта калькулятора (например https://calc.example.com):")
-    server = input("> ").strip()
-    if not server:
-        raise Fail("No server address.", "Адрес сервера не указан.")
-    return server
-
-
-def send_to_server(dataset: Path, server_arg: str | None, code_arg: str | None) -> None:
-    """Dump + icons + geometry -> one zip -> the server (asks for the cabinet code here)."""
-    try:
-        import upload_to_server as up
-    except ImportError as exc:
-        raise Fail("Uploading is not part of this build (tools/upload_to_server.py is missing).",
-                   "Отправка на сервер не входит в эту сборку (нет tools/upload_to_server.py).") from exc
-    try:
-        server = up.prepare_server(resolve_server(server_arg))
-        up.check_server(server)
-    except SystemExit as exc:
-        raise Fail(str(exc.code)) from exc
-    if not SERVER_FILE.exists() or _read_server_file(SERVER_FILE) != server:
-        SERVER_FILE.parent.mkdir(parents=True, exist_ok=True)
-        SERVER_FILE.write_text(server + "\n", encoding="utf-8")
-
-    geometry = up.newest(GEOMETRY, "*.json")
-    zip_path = ROOT / "tmp" / f"upload-{dataset.stem}.zip"
-    say("\nPacking the archive (dump, icons, geometry) ...", "\nУпаковываю архив (дамп, иконки, геометрия) ...")
-    try:
-        up.build_zip(zip_path, dataset, ROOT / "public" / "icons", geometry)
-    except SystemExit as exc:
-        raise Fail(str(exc.code)) from exc
-
-    try:
-        for attempt in range(1, 4):
-            code = (code_arg or os.environ.get("CHAIN_CALC_CODE") or "").strip()
-            if not code:
-                if not sys.stdin or not sys.stdin.isatty():
-                    raise Fail("Pass the cabinet code with --code (or CHAIN_CALC_CODE).",
-                               "Передай код кабинета через --code (или CHAIN_CALC_CODE).")
-                say("\nCabinet code (the one the site gave you when you created your cabinet), then Enter:",
-                    "\nКод кабинета (тот, что сайт выдал при создании кабинета), затем Enter:")
-                code = input("> ").strip()
-            try:
-                accepted = up.verify_code(server, code)
-            except SystemExit as exc:
-                raise Fail(str(exc.code)) from exc
-            if not accepted:
-                if attempt < 3 and sys.stdin and sys.stdin.isatty():
-                    say("The code was not accepted. Try again.", "Код не подошёл. Попробуй ещё раз.")
-                    code_arg = None
-                    os.environ.pop("CHAIN_CALC_CODE", None)
-                    continue
-                raise Fail("The server did not accept the cabinet code.", "Сервер не принял код кабинета.")
-            try:
-                result = up.upload(server, code, zip_path)
-            except SystemExit as exc:
-                raise Fail(str(exc.code)) from exc
-            up.report(result)
-            say("The server has unpacked the archive into your cabinet and deleted it.\n"
-                "Open the site and refresh the page (Ctrl+F5) - the dump is in the list.",
-                "Сервер распаковал архив в твой кабинет и удалил его.\n"
-                "Открой сайт и обнови страницу (Ctrl+F5) — дамп в списке.")
-            return
-    finally:
-        zip_path.unlink(missing_ok=True)
-
-
 # ----------------------------------------------------------------------------- the game does the dump itself
 
 def list_saves(exe: Path) -> list[Path]:
@@ -720,8 +622,6 @@ def cmd_full(args) -> int:
         shutil.rmtree(tmp, ignore_errors=True)
     make_geometry(exe, fingerprint, args.rebuild_icons)
     summary(target, knows_unlocked=False)
-    if args.upload:
-        send_to_server(target, args.server, args.code)
     return 0
 
 
@@ -766,8 +666,6 @@ def cmd_save(args) -> int:
         remove_mod()
     make_geometry(exe, fingerprint, args.rebuild_icons)
     summary(target, knows_unlocked=bool(known))
-    if args.upload:
-        send_to_server(target, args.server, args.code)
     return 0
 
 
@@ -781,10 +679,6 @@ def main(argv: list[str] | None = None) -> int:
     _lang.utf8_console()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--factorio", help="path to factorio.exe or the Factorio folder (otherwise found automatically)")
-    ap.add_argument("--upload", action="store_true",
-                    help="full / save: send the result to the calculator server (asks for the cabinet code)")
-    ap.add_argument("--server", dest="server", help="server address for --upload (https://host)")
-    ap.add_argument("--code", dest="code", help="cabinet code for --upload (otherwise asked at the end)")
     ap.add_argument("--rebuild-icons", action="store_true",
                     help="full / save: dump the icons and the geometry again even if the mod set did not change")
     ap.add_argument("--save", help="save: the save to load (a name from the saves folder or a path); "
