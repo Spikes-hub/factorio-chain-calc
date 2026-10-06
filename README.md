@@ -8,7 +8,11 @@ modules and beacons you need — for **your** game, with **your** mods (works gr
 
 It runs on your own computer, in the browser.
 
-<!-- screenshots: put them into docs/images/ and link here, e.g. ![Calculator](docs/images/calc.png) -->
+![Calculation: stages, machines, belts and inserters](docs/images/calc-en.png)
+
+| Recipe search | Inserters and loaders |
+|---|---|
+| ![Recipe search](docs/images/search-en.png) | ![Inserters tab](docs/images/ins-en.png) |
 
 ## What it does
 
