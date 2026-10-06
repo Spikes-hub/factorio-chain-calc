@@ -39,6 +39,13 @@ The calculator needs the recipes of your game. Close Factorio and run one of:
 
 Then refresh the page and pick the new dump at the top. Details: [docs/dumps.md](docs/dumps.md).
 
+## Plans
+
+- Better **blueprint generation** (layouts of more kinds of blocks, fewer manual fixes).
+- Launching the calculator as a **public website**, so it can be used without installing anything.
+
+Changes of every version are in the [changelog](CHANGELOG.md).
+
 ## Documentation
 
 - [How to use the calculator](docs/usage.md)
