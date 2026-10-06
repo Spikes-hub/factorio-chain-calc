@@ -23,8 +23,7 @@ from chain_calc import accounts, uploads
 
 PUBLIC_DIR = Path(__file__).resolve().parent.parent.parent / "public"
 
-# Папка с иконками, которые лежат в проекте (общие): у кабинета своя, но если
-# игрок ничего не присылал, показываем эти — иначе первый вход был бы без картинок.
+# Общая папка иконок проекта: показывается, если кабинет своих не загрузил.
 SHARED_ICONS_DIR = PUBLIC_DIR / "icons"
 
 SESSION_COOKIE = "chaincalc_session"
@@ -101,10 +100,10 @@ async def security_headers(request: Request, call_next):
 
 
 def early_upload_rejection(request: Request) -> Optional[JSONResponse]:
-    """Отказ до чтения тела: архив бывает на сотни МБ, а код и размер видны уже в заголовках.
+    """Отказ до чтения тела запроса: код и размер архива видны уже в заголовках.
 
-    Без этого сервер сначала принимал бы весь файл от кого угодно и только потом смотрел на код.
-    Код в поле формы (без заголовка) по-прежнему проверяет сам обработчик.
+    Без этого сервер сначала принимал бы весь файл и только потом проверял код. Код в
+    поле формы (не в заголовке) по-прежнему проверяет сам обработчик.
     """
     try:
         size = int(request.headers.get("content-length") or 0)
@@ -178,10 +177,8 @@ async def unhandled_exception_handler(request, exc: Exception):
 
 
 async def http_exception_handler(request, exc: HTTPException):
-    """Любая ошибка отвечает полем `error` — его и показывает интерфейс.
-
-    Раньше FastAPI клал текст в `detail`, и половина обработчиков на странице
-    просто молчала: они ищут `error`.
+    """Любая ошибка отвечает полем `error` — его показывает интерфейс (FastAPI по
+    умолчанию кладёт текст в `detail`).
     """
     detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail, ensure_ascii=False)
     return JSONResponse(status_code=exc.status_code, content={"error": detail, "detail": detail},

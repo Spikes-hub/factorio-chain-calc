@@ -90,10 +90,10 @@ async def upload_archive(request: Request, file: UploadFile = File(...),
 
 @router.get("/icons/{rest:path}")
 def get_icon(rest: str):
-    """Иконки предметов: сначала из кабинета игрока, потом общие.
+    """Иконки предметов: сначала из кабинета, потом общие.
 
-    В дампе ссылки записаны как `/icons/item/iron-plate.png`, поэтому путь один и
-    тот же, а откуда брать файл — зависит от того, чей это запрос.
+    В дампе ссылки вида `/icons/item/iron-plate.png`; откуда брать файл, зависит от
+    кабинета запроса.
     """
     parts = [p for p in (rest or "").split("/") if p not in ("", ".")]
     if not parts or any(p == ".." for p in parts):

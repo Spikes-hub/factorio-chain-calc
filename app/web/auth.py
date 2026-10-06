@@ -31,8 +31,7 @@ def auth_new(request: Request, response: Response, req: Optional[CodeRequest] = 
     user, code = accounts.create_user(note=(req.note if req else None) or "")
     moved = None
     if accounts.count_users() == 1 and storage.legacy_data_exists():
-        # Первый кабинет забирает то, что уже лежало в общих папках: у себя на
-        # компьютере игрок не должен потерять свои цепочки и дампы.
+        # Первый кабинет забирает данные из общих папок (цепочки и дампы одиночного режима).
         moved = storage.migrate_legacy_into(user["id"])
     token = accounts.create_session(user["id"], request.headers.get("user-agent", ""))
     core.set_session_cookie(response, token)
@@ -87,8 +86,7 @@ def auth_me():
 def auth_rotate(request: Request):
     """Новый код для того же кабинета: старый сразу перестаёт работать.
 
-    Вход на других устройствах закрываем, а текущий оставляем: игрок как раз
-    сохраняет новый код и продолжает работать.
+    Сессии на других устройствах закрываются, текущая остаётся.
     """
     user = core.current_user()
     code = accounts.rotate_code(user["id"])

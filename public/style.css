@@ -489,9 +489,7 @@ body.hideHints .beltGroupNote { display: none !important; }
 }
 .bpWarn { font-size: 12px; color: #e8b34b; }
 .bpWarns { display: flex; flex-direction: column; gap: 4px; }
-/* Завод этапа, который в игре не скрафтить: это не мелочь оформления — в чертёж и
-   в сундук запроса уезжает постройка, которой у игрока быть не может. Поэтому
-   красным и прямо под списком заводов. */
+/* Предупреждение «завод в игре не скрафтить»: красным, под списком заводов. */
 .machineCraftWarn {
   margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45;
   background: rgba(214, 79, 79, .12); border: 1px solid var(--danger); color: var(--text);
