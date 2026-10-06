@@ -1229,5 +1229,7 @@ window.__I18N_EN = {
 "Обновить их до дампа?": "Update them to the dump?",
 "Обновить до дампа": "Update to dump",
 "Оставить мои": "Keep mine",
-"галочка": "checkbox"
+"галочка": "checkbox",
+"Chain Calc на GitHub": "Chain Calc on GitHub",
+"· автор Spikes · исходный код, баг-репорты и предложения": "· by Spikes · source code, bug reports and suggestions"
 };

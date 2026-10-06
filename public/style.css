@@ -1120,3 +1120,6 @@ table.resultTable th { color: var(--text-dim); font-weight: 500; text-transform:
   .panel { padding: 10px; border-radius: 8px; }
   .topControls { top: 6px; right: 8px; gap: 6px; }
 }
+
+.siteFooter { margin: 28px 0 12px; text-align: center; font-size: 12px; color: var(--text-dim); }
+.siteFooter a { color: var(--accent); }
