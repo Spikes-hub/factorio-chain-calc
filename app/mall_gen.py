@@ -14,6 +14,13 @@
   * рецепты, у которых все продукты — предметы и хотя бы один ставится в мире
     (place_result). Ресурсы (руда, вода, нефть) и промежуточные материалы (плиты,
     схемы, прутья) не входят: их делает основное производство;
+  * модули: предметы типа прототипа «module» из дампа, но только настоящие — те, чья
+    категория подходит большинству заводов со слотами (скорость, продуктивность, эффективность
+    и то, что добавили моды). Модули, которые подходят лишь особым заводам (в Py это существа вроде породистого
+    хлопкоеда, модули чанов и биореакторов), в молл не входят. Названий в коде нет — всё
+    берётся из дампа. Автомат по одному рецепту на модуль: если рецептов несколько, берётся
+    тот, что называется как сам модуль, иначе первый, где модуль — первый продукт; все
+    ингредиенты, как и у остальных автоматов, идут через сундук запроса;
   * завод для рецепта — самый простой электрический, который умеет нужную категорию
     (у Py их 185, обычный сборщик умеет четыре);
   * в сундук запроса уходят твёрдые ингредиенты, умноженные на 4. Жидкость в сундук
@@ -68,6 +75,32 @@ def _product_for_menu(recipe: dict, items: dict) -> dict:
         if item.get("place_result"):
             return {"name": product["name"], **item}
     return {}
+
+
+def module_categories(entities: dict) -> set[str]:
+    """Категории настоящих модулей: те, что принимает большинство заводов со слотами под модули.
+
+    Особые заводы (чаны и биореакторы Py, скрытые маяки) принимают свои категории — существа, пилы и
+    прочее; у обычных сборщиков, печей и маяков набор один и тот же, он и считается «настоящим»."""
+    sets: dict[tuple, int] = {}
+    for record in (entities or {}).values():
+        allowed = record.get("allowed_module_categories")
+        if not allowed or not (record.get("module_slots") or 0):
+            continue
+        key = tuple(sorted(allowed))
+        sets[key] = sets.get(key, 0) + 1
+    return set(max(sets, key=sets.get)) if sets else set()
+
+
+def module_items(items: dict, entities: dict | None = None) -> set[str]:
+    """Имена настоящих модулей: тип прототипа «module» и категория, которую принимает большинство заводов.
+
+    Без `entities` отсев по категориям не делается (все предметы типа «module»)."""
+    modules = {name for name, item in items.items() if (item or {}).get("prototype_type") == "module"}
+    if entities is None:
+        return modules
+    real = module_categories(entities)
+    return {name for name in modules if (items[name] or {}).get("module_category") in real} if real else modules
 
 
 def machines_by_category(entities: dict, geometry: dict | None = None) -> dict:
@@ -140,12 +173,19 @@ def building_recipes(dataset: dict, geometry: dict | None = None) -> list[dict]:
     entities = dataset.get("entities") or {}
     recipes = dataset.get("recipes") or {}
     by_category = machines_by_category(entities, geometry)
+    modules = module_items(items, entities)
     out: list[dict] = []
+    chosen_modules: dict[str, tuple[int, int]] = {}      # модуль -> (приоритет, индекс записи в out)
     for name, recipe in recipes.items():
         products = recipe.get("products") or []
         if not products or any(p.get("type") != "item" for p in products):
             continue
         item = _product_for_menu(recipe, items)
+        module_item = None
+        if not item and products[0].get("name") in modules:
+            # модуль не ставится в мире, но его тоже нужно уметь собрать: берём, если он главный продукт
+            module_item = {"name": products[0]["name"], **(items.get(products[0]["name"]) or {})}
+            item = module_item
         if not item:
             continue
         if recipe.get("hidden") or recipe.get("parameter") or recipe.get("category") == "parameters":
@@ -154,7 +194,12 @@ def building_recipes(dataset: dict, geometry: dict | None = None) -> list[dict]:
         if not machine:
             continue
         machine_name, energy_source = machine
-        out.append({
+        if module_item is not None:
+            rank = 0 if name == module_item["name"] else 1       # рецепт, названный как модуль, главнее
+            known = chosen_modules.get(module_item["name"])
+            if known is not None and known[0] <= rank:
+                continue
+        entry = ({
             "recipe": name,
             "machine": machine_name,
             "energy": energy_source,
@@ -167,6 +212,16 @@ def building_recipes(dataset: dict, geometry: dict | None = None) -> list[dict]:
             "fluids": [i for i in (recipe.get("ingredients") or []) if i.get("type") == "fluid"],
             "products": [p for p in products if p.get("type") == "item"],
         })
+        if module_item is not None:
+            known = chosen_modules.get(module_item["name"])
+            if known is None:
+                chosen_modules[module_item["name"]] = (rank, len(out))
+                out.append(entry)
+            else:
+                out[known[1]] = entry                       # замена менее подходящего рецепта того же модуля
+                chosen_modules[module_item["name"]] = (rank, known[1])
+        else:
+            out.append(entry)
     out.sort(key=lambda r: (r["group"], r["subgroup"], r["title"], r["recipe"]))
     return out
 
