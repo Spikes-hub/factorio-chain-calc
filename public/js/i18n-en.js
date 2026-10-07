@@ -863,6 +863,8 @@ window.__I18N_EN = {
 "по ширине": "fit width",
 "Без названия": "Untitled",
 "(последние": "(latest",
+"(блоков × заводов в блоке)": "(blocks × machines per block)",
+"(групп × заводов в группе)": "(groups × machines per group)",
 "— сохранённые цепочки": "— saved chains",
 "Уже есть сохранённая цепочка «": "There is already a saved chain \"",
 "» с тем же конечным продуктом.": "\" with the same final product.",

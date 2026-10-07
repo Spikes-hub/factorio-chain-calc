@@ -4819,7 +4819,9 @@
     const blockSizes = [];
     if (usesOutputBelt && alignPriority === "out") {
       for (let i = 0; i < outPlan.blocks - 1; i++) blockSizes.push(outPlan.machinesPerBelt);
-      blockSizes.push(outPlan.lastBlockMachines);
+      // Последний блок — остаток ПОТОКА, а не целых заводов: ёмкость группы ниже тоже в потоке
+      // (дробная), и целая единица, поделённая на дробную ёмкость 0.2, давала «1 + 4 × 0».
+      blockSizes.push(Math.max(1e-9, n.machines - (outPlan.blocks - 1) * outPlan.machinesPerBelt));
     } else {
       blockSizes.push(n.machines);
     }
@@ -5061,7 +5063,7 @@
         ? `<b>1 группа</b> — все ${p.maxGroup} ${pluralMachines(p.maxGroup)}`
         : p.minGroup === p.maxGroup
         ? `<b>${p.numGroups} ${pluralGroups(p.numGroups)}</b> по <b>${p.maxGroup}</b> ${pluralMachines(p.maxGroup)}`
-        : `<b>${p.numGroups} ${pluralGroups(p.numGroups)}</b>: ${p.sizeSummary} ${pluralMachines(p.maxGroup)}`;
+        : `<b>${p.numGroups} ${pluralGroups(p.numGroups)}</b>: ${p.sizeSummary} ${pluralMachines(p.maxGroup)}${sizeLegend(p.sizeSummary)}`;
     const manual = p.override ? ` <span class="sumManual">вручную</span>` : "";
 
     // Who rides with whom - the one thing the summary must make obvious.
@@ -5369,13 +5371,19 @@
           plan.lastBlockMachines
         )}) заполнена на ${plan.lastBlockPct.toFixed(0)}%.`;
     const groupsNote = nodeId ? outputFeedGroupsHTML(nodeId, plan) : "";
+    const sizesLegend = sizes.includes("×") ? ` <span class="hint">(блоков × заводов в блоке)</span>` : "";
     return `<div class="beltGroupNote">Твои <b>${plan.totalMachines}</b> ${pluralMachines(
       plan.totalMachines
-    )} делятся на <b>${plan.blocks}</b> ${pluralBlocks(plan.blocks)} — по лентам: <b>${sizes}</b>. На одну ленту влезает <b>${
+    )} делятся на <b>${plan.blocks}</b> ${pluralBlocks(plan.blocks)} — по лентам: <b>${sizes}</b>${sizesLegend}. На одну ленту влезает <b>${
       plan.machinesPerBelt
     }</b> ${pluralMachines(plan.machinesPerBelt)} (весь поток этапа, округляя вниз).${lastNote} Общий поток ${plan.totalRate.toFixed(
       2
     )}/сек.${laneNote ? " " + laneNote : ""}${groupsNote}</div>`;
+  }
+
+  /** Пояснение к записи «4 × 7 + 5»: слева число групп, справа заводов в каждой. */
+  function sizeLegend(summary) {
+    return String(summary || "").includes("×") ? ` <span class="hint">(групп × заводов в группе)</span>` : "";
   }
 
   function pluralBlocks(n) {
@@ -7212,7 +7220,7 @@
       plan.numGroups > 1
         ? plan.minGroup === plan.maxGroup
           ? ` Все группы одинаковые — по <b>${plan.maxGroup}</b> ${pluralMachines(plan.maxGroup)}.`
-          : ` Размеры групп: <b>${plan.sizeSummary}</b> ${
+          : ` Размеры групп: <b>${plan.sizeSummary}</b>${sizeLegend(plan.sizeSummary)} ${
               plan.maxGroup - plan.minGroup === 1
                 ? `<span class="hint">(разница в 1 завод — ровнее уже не разделить)</span>`
                 : `<span class="hint">(группы разной величины: их задают блоки выхода — одному блоку нужно больше заводов, другому меньше)</span>`
@@ -7231,7 +7239,7 @@
       : plan.override
       ? `<div class="beltGroupNote alt">Размер группы задан вручную: <b>${plan.override}</b> ${pluralMachines(plan.override)} → <b>${
           plan.sizeSummary
-        }</b>.${evenTip} Очисти поле и нажми Enter — вернётся автоматическое разбиение.</div>`
+        }</b>${sizeLegend(plan.sizeSummary)}.${evenTip} Очисти поле и нажми Enter — вернётся автоматическое разбиение.</div>`
       : "";
 
     // Why this belt scheme and not the other one (only when we chose it ourselves).
@@ -7305,7 +7313,7 @@
       pairBoxes +
       soloRows;
 
-    const head = plan.minGroup === plan.maxGroup ? `по ${plan.maxGroup} ${pluralMachines(plan.maxGroup)}` : `${plan.sizeSummary} ${pluralMachines(plan.maxGroup)}`;
+    const head = plan.minGroup === plan.maxGroup ? `по ${plan.maxGroup} ${pluralMachines(plan.maxGroup)}` : `${plan.sizeSummary} ${pluralMachines(plan.maxGroup)}${sizeLegend(plan.sizeSummary)}`;
     return (
       `<div class="beltGroupBox">` +
       `<div class="beltGroupBoxHead"><span class="beltGroupBoxLabel">Группы подачи · ${plan.numGroups} ${pluralGroups(
