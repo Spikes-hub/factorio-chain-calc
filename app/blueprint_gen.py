@@ -95,6 +95,9 @@ class BlockSpec:
     reserve_fluid_tiles: bool = True
     # Маяки в раскладку не входят: их считает сайт (эффект заводов и сундук запроса).
     dataset_id: str | None = None
+    # Топливо, которое жжёт завод. Если от него остаётся пепел (burnt_result), пепел уезжает с завода по ленте
+    # выгрузки, даже когда продукты рецепта — одни жидкости.
+    fuel: str | None = None
 
 
 def machine_is_craftable(machine: str | None, dataset_id: str | None = None) -> bool | None:
@@ -1062,6 +1065,18 @@ def _recipe_of(recipe: str | None, dataset_id: str | None = None) -> dict:
     return (data.get("recipes") or {}).get(recipe) or {}
 
 
+def burnt_result(fuel: str | None, dataset_id: str | None = None) -> str | None:
+    """Что остаётся после сгорания топлива (пепел) или None."""
+    path = dataset_path(dataset_id)
+    if not path or not fuel:
+        return None
+    import json as _json
+
+    with path.open(encoding="utf-8") as f:
+        item = (_json.load(f).get("items") or {}).get(fuel) or {}
+    return item.get("burnt_result") or None
+
+
 def has_solid_products(spec: "BlockSpec", dataset_id: str | None = None) -> bool:
     """Есть ли у рецепта ТВЁРДЫЕ продукты.
 
@@ -1071,6 +1086,8 @@ def has_solid_products(spec: "BlockSpec", dataset_id: str | None = None) -> bool
     rec = _recipe_of(spec.recipe, dataset_id)
     if not rec:
         return True   # рецепта не знаем — считаем, что лента выгрузки нужна
+    if burnt_result(spec.fuel, dataset_id):
+        return True   # пепел от топлива едет лентой выгрузки
     return any(i.get("type") == "item" for i in (rec.get("products") or []))
 
 
@@ -2161,6 +2178,7 @@ def build_list(stages: list[dict], geometry: dict | None = None,
                          inserter_out_count=max(1, int(stage.get("inserterOutCount") or 1)) if inserter_out else 0,
                          pole=stage.get("pole"),
                          belt_sides=stage.get("beltSides") or "same",
+                         fuel=stage.get("fuel"),
                          row_groups=stage.get("rowGroups"),
                          input_belts=stage.get("inputBelts"))
         try:

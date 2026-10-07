@@ -4150,7 +4150,7 @@
           : knows && !machineUnlocked(dataset, m.name)
           ? " — ещё не изучен"
           : "";
-        return `<option value="${m.name}" ${m.name === selected ? "selected" : ""}>${machineDisplayName(m)}${mark}</option>`;
+        return `<option value="${m.name}" data-icon="${machineIconUrl(m) || ""}" ${m.name === selected ? "selected" : ""}>${machineDisplayName(m)}${mark}</option>`;
       })
       .join("");
   }
@@ -6145,7 +6145,7 @@
     return list
       .map(
         (e) =>
-          `<option value="${e.name}" ${e.name === selected ? "selected" : ""}>${e.display_name || prettify(e.name)}</option>`
+          `<option value="${e.name}" data-icon="${e.icon_url || e.icon || ""}" ${e.name === selected ? "selected" : ""}>${e.display_name || prettify(e.name)}</option>`
       )
       .join("");
   }
@@ -6214,6 +6214,7 @@
         inputBelts: groups && groups.belts ? groups.belts : null,
         modules: blueprintModulesFor(node.id),
         belt: blueprintDefaultBeltName() || "transport-belt",
+        fuel: blueprintFuelFor(node.id),
         inserterIn,
         inserterOut,
         // Вход по лентам: у каждой ленты свой манипулятор (см. blueprintInserterInRows).
@@ -6609,9 +6610,16 @@
     }
   }
 
+  /** Сторона выхода для чертежа: у рецепта с одними жидкостями выгрузка — только пепел от топлива. */
+  function blueprintOutSide(nodeId, side) {
+    if (side !== "out" || inserterStreamsSafe(nodeId, "out").length) return side;
+    return inserterStreamsSafe(nodeId, "ash").length ? "ash" : side;
+  }
+
   function blueprintInserterFromChain(nodeId, side) {
     const n = state.lastResult && state.lastResult.nodes && state.lastResult.nodes[nodeId];
     if (!n) return null;
+    side = blueprintOutSide(nodeId, side);
     const streams = inserterStreamsSafe(nodeId, side);
     if (!streams.length) return null;
     const busiest = streams.slice().sort((a, b) => (b.rate || 0) - (a.rate || 0))[0];
@@ -6869,9 +6877,10 @@
         continue;
       }
       let total = 0;
+      const streamSide = blueprintOutSide(nodeId, side);
       try {
-        for (const stream of stageInserterStreams(n, side, plan, root) || []) {
-          const device = chosenInserter(nodeId, side, stream);
+        for (const stream of stageInserterStreams(n, streamSide, plan, root) || []) {
+          const device = chosenInserter(nodeId, streamSide, stream);
           const throughput = device ? device.throughput : 0;
           total += streamInserterCount(stream, throughput) || 0;
         }
@@ -6881,6 +6890,12 @@
       counts[side] = Math.max(1, total);
     }
     return { inCount: counts.in, outCount: counts.out };
+  }
+
+  /** Топливо этапа (от него остаётся пепел, и блоку нужна лента выгрузки). */
+  function blueprintFuelFor(nodeId) {
+    const treeNode = findTreeNodeById(state.cascade && state.cascade.root, nodeId);
+    return (treeNode && treeNode.fuelItem) || null;
   }
 
   function blueprintPayloadForNode(nodeId) {
@@ -6905,6 +6920,7 @@
       inputBelts: groups && groups.belts ? groups.belts : null,
       modules: blueprintModulesFor(nodeId),
       belt: blueprintDefaultBeltName() || "transport-belt",
+      fuel: blueprintFuelFor(nodeId),
       inserterIn,
       inserterOut,
       // Вход по лентам: у каждой ленты свой манипулятор (см. blueprintInserterInRows).
@@ -7823,6 +7839,13 @@
     return list;
   }
 
+  /** Иконка этапа в списке маяков: рецепт, а без неё завод. */
+  function beaconFactoryIcon(node) {
+    const recipe = state.dataset.recipes[node.recipeName];
+    const machine = (state.dataset.entities || {})[node.machineName];
+    return recipeIconUrl(recipe) || machineIconUrl(machine) || "";
+  }
+
   function beaconFactoryLabel(node) {
     const recipe = state.dataset.recipes[node.recipeName];
     const machine = (state.dataset.entities || {})[node.machineName];
@@ -7922,12 +7945,12 @@
           <select class="beaconFactorySelect" data-node="${node.id}" data-row="${index}"
                   title="Этап цепочки, заводы которого накрывает этот маяк">
             ${candidates
-              .map((n) => `<option value="${n.id}" ${n.id === node.id ? "selected" : ""}>${beaconFactoryLabel(n)}</option>`)
+              .map((n) => `<option value="${n.id}" data-icon="${beaconFactoryIcon(n) || ""}" ${n.id === node.id ? "selected" : ""}>${beaconFactoryLabel(n)}</option>`)
               .join("")}
           </select>
           <select class="beaconSelect" data-node="${node.id}" data-row="${index}" title="Тип маяка">
             ${beacons
-              .map((b) => `<option value="${b.name}" ${b.name === beacon?.name ? "selected" : ""}>${machineDisplayName(b)}</option>`)
+              .map((b) => `<option value="${b.name}" data-icon="${machineIconUrl(b) || ""}" ${b.name === beacon?.name ? "selected" : ""}>${machineDisplayName(b)}</option>`)
               .join("")}
           </select>
           <span class="beaconLabel" title="Сколько заводов этапа накрывает ЭТОТ маяк. Пусто — весь этап. Заводы за пределами покрытия работают без прибавки">покрывает заводов:</span>
@@ -8400,7 +8423,7 @@
             }">${fuels
               .map(
                 (f) =>
-                  `<option value="${f.name}" ${treeNode && f.name === treeNode.fuelItem ? "selected" : ""}>${
+                  `<option value="${f.name}" data-icon="${f.icon_url || ""}" ${treeNode && f.name === treeNode.fuelItem ? "selected" : ""}>${
                     burnsFluid ? "⛽ " : ""
                   }${f.display_name || prettify(f.name)}</option>`
               )
@@ -10705,6 +10728,9 @@
       const opt = document.createElement("option");
       opt.value = c.id;
       opt.textContent = savedChainLabel(c);
+      // иконка конечного продукта цепочки: файлы лежат по имени, датасет для этого не нужен
+      const [finalType, finalName] = c.finalKey ? keyBaseParts(c.finalKey) : [null, null];
+      if (finalName && (finalType === "item" || finalType === "fluid")) opt.dataset.icon = `/icons/${finalType}/${finalName}.png`;
       sel.appendChild(opt);
     }
     if (current) sel.value = current;

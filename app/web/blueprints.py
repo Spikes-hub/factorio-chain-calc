@@ -47,6 +47,8 @@ class BlueprintRequest(BaseModel):
     # (вход и выход подключаются с одного конца блока, по умолчанию),
     # "opposite" — в другую сторону (подача на север, выгрузка на юг).
     beltSides: str = "same"
+    # Топливо завода: пепел от него едет лентой выгрузки.
+    fuel: Optional[str] = None
     # Сколько групп в каждом ряду блока: [5, 5, 5] — три ряда по пять групп. Пусто — все
     # группы в один ряд. Сумма должна совпасть с числом групп этапа, иначе генератор
     # вернёт ошибку текстом.
@@ -128,7 +130,7 @@ def make_blueprint(req: BlueprintRequest):
                          inserter_in_count=max(1, int(req.inserterInCount or 1)),
                          inserter_out_count=max(1, int(req.inserterOutCount or 1)),
                          pole=pole, stub=req.stub, label=req.label,
-                         belt_sides=req.beltSides)
+                         belt_sides=req.beltSides, fuel=req.fuel, dataset_id=req.datasetId)
     try:
         obj = gen.generate_sandwich_block(spec)
         string = bp.encode_string(obj)
