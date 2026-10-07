@@ -8,11 +8,11 @@ modules and beacons you need — for **your** game, with **your** mods (works gr
 
 It runs on your own computer, in the browser.
 
-![Calculation: stages, machines, belts and inserters](docs/images/calc-en.png)
+![Calculation: stages, machines, belts and inserters](docs/images/calc-en-2.png)
 
 | Recipe search | Inserters and loaders |
 |---|---|
-| ![Recipe search](docs/images/search-en.png) | ![Inserters tab](docs/images/ins-en.png) |
+| ![Recipe search](docs/images/search-en-2.png) | ![Inserters tab](docs/images/ins-en-2.png) |
 
 > **Status: early version.** It was developed and tested only with **Pyanodon's** mod set (with Bob's) on a
 > single save. Vanilla and other mod packs should mostly work, but there may be bugs. If something is off — a
