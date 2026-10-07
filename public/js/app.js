@@ -10683,7 +10683,7 @@
     const current = sel.value;
     // newest first
     const sorted = list.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
-    sel.innerHTML = `<option value="">— сохранённые цепочки${
+    sel.innerHTML = `<option value="" data-i18n-ui>— сохранённые цепочки${
       sorted.length > SAVED_CHAINS_LIMIT ? ` (последние ${SAVED_CHAINS_LIMIT} из ${sorted.length})` : ""
     } —</option>`;
     const shown = sorted.slice(0, SAVED_CHAINS_LIMIT);

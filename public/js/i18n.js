@@ -220,6 +220,7 @@
 
   // Names typed by the user (saved chains list) are data, not interface: leave them alone.
   function isUserData(el) {
+    if (el.closest && el.closest("[data-i18n-ui]")) return false;   // подпись-заглушка в списке: это интерфейс
     return !!(el.closest && el.closest("#savedChainsSelect, [data-no-i18n]"));
   }
 
