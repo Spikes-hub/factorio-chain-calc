@@ -7,6 +7,10 @@ The calculator is useless without one. Both scripts find Factorio themselves (St
 they ask for the path once and remember it; or set the `FACTORIO_DIR` environment variable). They install a small
 exporter mod only for the time of the dump and remove it afterwards. **Close Factorio before running them.**
 
+> **Game version the dumps were checked with: Factorio 2.0.77** (Steam), Pyanodon mod set (base 2.0.77, pyindustry 3.0.21, pycoalprocessing 3.0.44, pyrawores 3.0.25, pyhightech 3.0.19, pyalienlife 3.0.67, pypetroleumhandling 3.0.23, pyalternativeenergy 3.1.38, pyfusionenergy 3.0.17, pypostprocessing 3.0.42, boblogistics 2.1.1, bobinserters 2.0.3).
+> A dump records the version of the game and of every mod in its `mods` field; after you update the game or mods,
+> make a new dump so recipes and building geometry match.
+
 ## Full dump — `dump_full.bat`
 
 Every recipe of your mod set plus building geometry (needed for generated blueprints). It does **not** know what

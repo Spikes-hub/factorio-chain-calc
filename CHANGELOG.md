@@ -4,6 +4,10 @@
 
 All notable changes are listed here, newest first. Format: version — date.
 
+## Unreleased
+
+- Documented the game version the dump was checked with: Factorio 2.0.77 (Pyanodon set, mod versions in the README).
+
 ## 0.1.0 — 2026-10-06
 
 First public release.

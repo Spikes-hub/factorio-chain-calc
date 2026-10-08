@@ -18,6 +18,9 @@ It runs on your own computer, in the browser.
 > single save. Vanilla and other mod packs should mostly work, but there may be bugs. If something is off — a
 > wrong number, a missing recipe, a crash — please tell me: a [bug report](../../issues/new/choose) or a thread in
 > [Discussions](../../discussions) with your mod list helps a lot. Ideas and suggestions are welcome too.
+>
+> **Checked against: Factorio 2.0.77** (Steam), the dump `2026-09-19` of the Pyanodon set: base 2.0.77, pyindustry 3.0.21, pycoalprocessing 3.0.44, pyrawores 3.0.25, pyhightech 3.0.19, pyalienlife 3.0.67, pypetroleumhandling 3.0.23, pyalternativeenergy 3.1.38, pyfusionenergy 3.0.17, pypostprocessing 3.0.42, boblogistics 2.1.1, bobinserters 2.0.3.
+> Another game or mod version can change recipes and building geometry: after updating, make a new dump.
 
 ## What it does
 
