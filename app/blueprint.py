@@ -368,6 +368,11 @@ def fluid_connections(entity: dict, geometry: dict | None = None) -> list[dict]:
                     "side": DIRECTIONS.get(direction, f"направление {direction}"),
                     "kind": conn.get("type") or "normal",
                     "filter": conn.get("filter"),
+                    "energy": bool(box.get("energy")),
+                    "box_flow": conn.get("flow"),
+                    # категории соединения: труба соединяется с портом, только если
+                    # у них есть общая категория (ниобиевая труба с обычным портом — нет)
+                    "categories": list(conn.get("categories") or []) or ["default"],
                     "max_underground_distance": conn.get("max_underground"),
                     "machine_tile": conn_tile,
                     "approach_tile": approach,
@@ -881,6 +886,71 @@ def render_ascii(obj: dict, geometry: dict | None = None, max_width: int = 150) 
         for (name, side), tiles in sorted(by_dir.items()):
             lines.append(f"  {len(tiles):3d} x {name} смотрят {side}: {tiles[:6]}{' ...' if len(tiles) > 6 else ''}")
     return "\n".join(lines)
+
+
+def preview_data(obj: dict, geometry: dict | None = None) -> dict:
+    """Данные для картинки раскладки на странице: что где стоит, без лишнего.
+
+    Каждая постройка — одна запись [вид, лево, верх, ширина, высота, куда, имя,
+    рецепт]. Вид: machine, belt, underground, splitter, loader, inserter, pipe,
+    pipe-ground, pole, other. «Куда» — шаг в тайлах (dx, dy) вдоль потока: у ленты
+    она едет туда, у манипулятора и погрузчика туда они кладут (берут с обратной
+    стороны), у остальных None. Размеры и вид берутся из геометрии построек, поэтому
+    картинка рисуется по тем же правилам, что и проверки блюпринта.
+    """
+    entities = iter_entities(obj)
+    records = entity_records(geometry)
+    items: list = []
+    for ent in entities:
+        name = ent.get("name") or "?"
+        t = tiles_of(ent, geometry)
+        if not t:
+            continue
+        left, top, w, h = t
+        etype = (records.get(name) or {}).get("type")
+        direction = int(ent.get("direction") or 0)
+        flow = None
+        if etype in MACHINE_TYPES:
+            kind = "machine"
+        elif etype == "transport-belt":
+            kind, flow = "belt", DIRECTION_STEPS.get(direction)
+        elif etype == "underground-belt":
+            kind, flow = "underground", DIRECTION_STEPS.get(direction)
+        elif etype in ("splitter", "lane-splitter"):
+            kind, flow = "splitter", DIRECTION_STEPS.get(direction)
+        elif etype in ("loader", "loader-1x1", "inserter"):
+            kind = "loader" if etype != "inserter" else "inserter"
+            moved = device_flow(ent, geometry)
+            if moved:
+                own = moved["tile"]
+                ins_tile = moved["insert"]
+                flow = (max(-1, min(1, ins_tile[0] - own[0])), max(-1, min(1, ins_tile[1] - own[1])))
+        elif etype == "pipe":
+            kind = "pipe"
+        elif etype == "pipe-to-ground":
+            # устье подземной трубы смотрит по direction, туннель — в обратную сторону
+            kind = "pipe-ground"
+            step = DIRECTION_STEPS.get(direction)
+            flow = (-step[0], -step[1]) if step else None
+        elif etype == "electric-pole":
+            kind = "pole"
+        elif etype in ("straight-rail", "legacy-straight-rail", "curved-rail-a", "curved-rail-b",
+                       "legacy-curved-rail", "half-diagonal-rail"):
+            kind = "rail"
+        elif etype == "train-stop":
+            kind = "stop"
+        elif etype in ("container", "logistic-container"):
+            kind = "warehouse"
+        else:
+            kind = "other"
+        items.append([kind, left, top, w, h, list(flow) if flow else None, name, ent.get("recipe")])
+    if not items:
+        return {"x0": 0, "y0": 0, "width": 0, "height": 0, "items": []}
+    x0 = min(i[1] for i in items)
+    y0 = min(i[2] for i in items)
+    x1 = max(i[1] + i[3] for i in items)
+    y1 = max(i[2] + i[4] for i in items)
+    return {"x0": x0, "y0": y0, "width": x1 - x0, "height": y1 - y0, "items": items}
 
 
 def belt_lines(obj: dict, geometry: dict | None = None) -> list[dict]:

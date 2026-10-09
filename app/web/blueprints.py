@@ -43,6 +43,11 @@ class BlueprintRequest(BaseModel):
     pole: Optional[str] = None
     stub: int = 3
     label: str = ""
+    # Подземные трубы от портов жидкости, смотрящих наружу блока: у порта и на
+    # краю группы подземные трубы, от них ствол. Выключено — тайлы просто свободны.
+    pipes: bool = False
+    # Какую трубу ставить (выбор в настройках): обычная; подземная — её имя + «-to-ground».
+    pipe: Optional[str] = None
     # Куда едет лента выгрузки относительно лент подачи: "same" — в ту же сторону
     # (вход и выход подключаются с одного конца блока, по умолчанию),
     # "opposite" — в другую сторону (подача на север, выгрузка на юг).
@@ -102,25 +107,33 @@ def _with_default_pole(stages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-@router.post("/api/blueprint")
-def make_blueprint(req: BlueprintRequest):
-    """Собирает блюпринт блока по данным этапа цепочки.
+@router.get("/api/pipe_types")
+def pipe_types():
+    """Виды труб из геометрии построек: имя, подземная пара и категория соединения.
 
-    Трубы в блоке не ставятся: тайлы под газ и жидкость только резервируются, а
-    проверка (fluidProblems) говорит, если что-то из них всё-таки занято.
+    Названия и иконки берёт страница из дампа (предметы), а что доступно игроку — по
+    изученному в его сохранении; здесь только то, что знает геометрия.
     """
-    try:
-        import blueprint as bp
-        import blueprint_gen as gen
-    except ImportError as exc:  # pragma: no cover — на нормальной установке не бывает
-        raise HTTPException(500, f"генератор недоступен: {exc}")
+    import block_pipes
+    import blueprint as bp
 
     if not bp.geometry_path():
         raise HTTPException(400, "нет файла геометрии — сделай дамп: сделать дамп геометрии.bat")
-    if req.count < 1:
-        raise HTTPException(400, "нужен хотя бы один завод")
+    return {"pipes": block_pipes.pipe_types()}
+
+
+def _block_spec(req: "BlueprintRequest"):
+    """Спецификация блока из тела запроса: (spec, pole) или JSONResponse с ошибкой."""
+    import blueprint_gen as gen
 
     pole = req.pole or _default_pole()
+    pipe_name, pipe_ground = "pipe", "pipe-to-ground"
+    if req.pipe:
+        import block_pipes
+        known = {item["name"]: item for item in block_pipes.pipe_types()}
+        if req.pipe not in known:
+            return JSONResponse(status_code=400, content={"error": f"не знаю трубу {req.pipe}"}), pole
+        pipe_name, pipe_ground = req.pipe, known[req.pipe]["ground"]
     spec = gen.BlockSpec(machine=req.machine, recipe=req.recipe, count=req.count,
                          groups=req.groups, input_belts=req.inputBelts,
                          row_groups=req.rowGroups,
@@ -130,12 +143,16 @@ def make_blueprint(req: BlueprintRequest):
                          inserter_in_count=max(1, int(req.inserterInCount or 1)),
                          inserter_out_count=max(1, int(req.inserterOutCount or 1)),
                          pole=pole, stub=req.stub, label=req.label,
-                         belt_sides=req.beltSides, fuel=req.fuel, dataset_id=req.datasetId)
-    try:
-        obj = gen.generate_sandwich_block(spec)
-        string = bp.encode_string(obj)
-    except (ValueError, KeyError) as exc:
-        return JSONResponse(status_code=400, content={"error": str(exc)})
+                         belt_sides=req.beltSides, pipes=bool(req.pipes),
+                         pipe=pipe_name, pipe_ground=pipe_ground, dataset_id=req.datasetId,
+                         fuel=req.fuel)
+    return spec, pole
+
+
+def _block_answer(obj: dict, spec, req: "BlueprintRequest", pole: str) -> dict:
+    """Ответ с блюпринтом блока: строка, разбор, замечания, схема."""
+    import blueprint as bp
+    import blueprint_gen as gen
 
     plan = gen.block_plan(spec)
     problems = bp.validate(obj)
@@ -143,7 +160,7 @@ def make_blueprint(req: BlueprintRequest):
     reservation = plan["reservation"]
     groups = [int(g) for g in (req.groups or []) if int(g) > 0] or [req.count]
     return {
-        "string": string,
+        "string": bp.encode_string(obj),
         "label": bp.blueprint_of(obj).get("label", ""),
         "entityCount": len(bp.iter_entities(obj)),
         "groups": groups,
@@ -157,9 +174,46 @@ def make_blueprint(req: BlueprintRequest):
         "fluids": reservation.get("fluids", {}),
         "unreachable": reservation.get("unreachable", []),
         "summary": bp.layout_summary(obj),
+        "preview": bp.preview_data(obj),
+        "notes": [line for line in (bp.blueprint_of(obj).get("description") or "").splitlines() if line],
         "problems": [p["text"] for p in problems],
         "fluidProblems": [p["text"] for p in fluid_problems],
     }
+
+
+def _check_block_request(req: "BlueprintRequest"):
+    import blueprint as bp
+
+    if not bp.geometry_path():
+        raise HTTPException(400, "нет файла геометрии — сделай дамп: сделать дамп геометрии.bat")
+    if req.count < 1:
+        raise HTTPException(400, "нужен хотя бы один завод")
+
+
+@router.post("/api/blueprint")
+def make_blueprint(req: BlueprintRequest):
+    """Собирает блюпринт блока по данным этапа цепочки.
+
+    Подземные трубы ставятся к портам жидкости, смотрящим наружу блока и в коридор; остальные
+    тайлы под газ и жидкость резервируются, а проверка (fluidProblems) говорит, если что-то из
+    них всё-таки занято.
+    """
+    try:
+        import blueprint as bp
+        import blueprint_gen as gen
+    except ImportError as exc:  # pragma: no cover — на нормальной установке не бывает
+        raise HTTPException(500, f"генератор недоступен: {exc}")
+
+    _check_block_request(req)
+    spec, pole = _block_spec(req)
+    if isinstance(spec, JSONResponse):
+        return spec
+    try:
+        obj = gen.generate_sandwich_block(spec)
+        bp.encode_string(obj)
+    except (ValueError, KeyError) as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return _block_answer(obj, spec, req, pole)
 
 
 class BlueprintChestRequest(BaseModel):

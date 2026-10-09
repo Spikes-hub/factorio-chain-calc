@@ -337,8 +337,16 @@ def compact_entity(proto: dict) -> dict | None:
 
     # --- трубы ---
     boxes = fluid_boxes(proto)
-    if boxes:
-        out["fluids"] = [compact_fluid_box(b) for b in boxes]
+    compact = [compact_fluid_box(b) for b in boxes]
+    # Завод на жидком топливе: вход топлива — отдельный fluid box источника энергии. Кладём его ПЕРВЫМ входом
+    # с пометкой energy: тогда «i-я жидкость идёт в i-й вход» работает, если топливо поставить первой жидкостью.
+    energy_box = (proto.get("energy_source") or {}).get("fluid_box")
+    if (proto.get("energy_source") or {}).get("type") == "fluid" and isinstance(energy_box, dict):
+        fuel = compact_fluid_box({**energy_box, "production_type": "input"})
+        fuel["energy"] = True
+        compact.insert(0, fuel)
+    if compact:
+        out["fluids"] = compact
 
     # --- манипулятор ---
     if proto.get("type") == "inserter" or proto.get("rotation_speed") is not None:

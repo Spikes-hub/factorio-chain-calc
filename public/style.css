@@ -1122,6 +1122,51 @@ table.resultTable th { color: var(--text-dim); font-weight: 500; text-transform:
 .siteFooter { margin: 28px 0 12px; text-align: center; font-size: 12px; color: var(--text-dim); }
 .siteFooter a { color: var(--accent); }
 
+/* Схема раскладки блока: SVG в тайлах, цвета — через переменные темы. */
+.bpPreviewTools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; font-size: 12px; }
+.bpPreviewScroll { overflow: auto; max-height: 520px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.bpPreviewSvg { display: block; }
+.pvLegend { display: inline-flex; gap: 10px; flex-wrap: wrap; color: var(--text-dim); }
+.pvLegendItem { display: inline-flex; align-items: center; gap: 4px; }
+.pvSwatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
+.pv-machine, .pv-machine-sw { fill: var(--teal); background: var(--teal); fill-opacity: .55; stroke: var(--teal); stroke-width: .06; }
+.pv-machine-sw { background: color-mix(in srgb, var(--teal) 55%, transparent); }
+.pv-other, .pv-other-sw { fill: var(--text-dim); fill-opacity: .4; background: var(--text-dim); }
+.pv-belt-bg { fill: var(--belt-yellow); fill-opacity: .35; }
+.pv-belt-sw { background: var(--belt-yellow); }
+.pv-belt-arrow { fill: var(--belt-yellow); }
+.pv-underground, .pv-underground-sw { fill: var(--belt-blue); fill-opacity: .6; background: var(--belt-blue); }
+.pv-underground-arrow, .pv-splitter-arrow { fill: var(--text); }
+.pv-splitter, .pv-splitter-sw { fill: var(--belt-red); fill-opacity: .5; background: var(--belt-red); }
+.pv-loader-bg, .pv-loader-sw { fill: var(--belt-red); fill-opacity: .55; background: var(--belt-red); }
+.pv-loader-arrow { fill: var(--text); }
+.pv-inserter-bg, .pv-inserter-sw { fill: var(--accent); fill-opacity: .35; background: var(--accent); }
+.pv-inserter-arrow { fill: var(--accent); }
+.pv-pipe, .pv-pipe-ground, .pv-pipe-sw, .pv-pipe-ground-sw { fill: var(--good); fill-opacity: .6; background: var(--good); }
+.pv-pole, .pv-pole-sw { fill: var(--text); background: var(--text); }
+.pv-reserved, .pv-reserved-sw { fill: var(--teal); fill-opacity: .12; stroke: var(--teal); stroke-width: .05; stroke-dasharray: .25 .15; background: transparent; }
+.pv-port { fill: var(--teal); fill-opacity: .45; }
+.pv-pipe-ground-arrow { fill: var(--text); }
+.bpPipesPick { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+
+/* Выбор трубы в настройках: свой выпадающий список, чтобы у вариантов были иконки */
+.pipePick { position: relative; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0; }
+.pipePickLabel { font-size: 13px; }
+.pipePickBtn { display: inline-flex; align-items: center; gap: 8px; min-width: 200px; }
+.pipePickCaret { margin-left: auto; color: var(--text-dim); }
+.pipePickList {
+  position: absolute; top: 100%; left: 0; z-index: 50; min-width: 260px; max-height: 320px; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .25);
+}
+.pipePickOption {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); cursor: pointer; text-align: left; font: inherit;
+}
+.pipePickOption:hover, .pipePickOption.active { background: var(--panel-2); }
+.pipePickOption.active { font-weight: 600; }
+
+
 /* выпадающие списки с иконками (public/js/icon-select.js) */
 .isHidden { display: none !important; }
 .iconSelect { position: relative; display: inline-block; vertical-align: middle; max-width: 100%; }

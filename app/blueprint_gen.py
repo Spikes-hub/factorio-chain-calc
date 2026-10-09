@@ -29,6 +29,7 @@ import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+import block_pipes
 import blueprint as bp
 import langtr
 
@@ -95,9 +96,35 @@ class BlockSpec:
     reserve_fluid_tiles: bool = True
     # Маяки в раскладку не входят: их считает сайт (эффект заводов и сундук запроса).
     dataset_id: str | None = None
+    # Подземные трубы от портов жидкости, смотрящих наружу блока (см. block_pipes).
+    # Выключено по умолчанию: ширина промежутка между группами растёт под стволы.
+    pipes: bool = False
+    pipe: str = "pipe"
+    pipe_ground: str = "pipe-to-ground"
     # Топливо, которое жжёт завод. Если от него остаётся пепел (burnt_result), пепел уезжает с завода по ленте
     # выгрузки, даже когда продукты рецепта — одни жидкости.
     fuel: str | None = None
+
+
+NO_SAMPLE_MARKS = ("смотрит вдоль стенки", "нет бокса под жидкость", "уже идёт цепочка другой жидкости")
+
+
+class UnsupportedLayout(ValueError):
+    """Для этой ситуации нет образца раскладки: блок не собирается, а причина пишется пользователю."""
+
+
+def unsupported_message(spec: "BlockSpec", reasons: list[str]) -> str:
+    """Текст отказа: что именно не удалось и как получить блок."""
+    seen: list[str] = []
+    for reason in reasons:
+        if reason not in seen:
+            seen.append(reason)
+    shown = "; ".join(seen[:4]) + (f"; и ещё {len(seen) - 4}" if len(seen) > 4 else "")
+    return (f"Блок «{spec.recipe or '?'}» на заводе «{spec.machine}» пока собрать нельзя: для этой ситуации нет "
+            f"образца раскладки труб. Что не удалось: {shown}. "
+            "Пришли шаблон, как такой блок строится вручную (папка templates), и генератор научится. "
+            "Без подземных труб блок собирается: сними галочку «подземные трубы от внешних портов жидкости», тайлы под "
+            "жидкости останутся свободными.")
 
 
 def machine_is_craftable(machine: str | None, dataset_id: str | None = None) -> bool | None:
@@ -114,8 +141,7 @@ def machine_is_craftable(machine: str | None, dataset_id: str | None = None) -> 
         return None
     import json as _json
 
-    with path.open(encoding="utf-8") as f:
-        data = _json.load(f)
+    data = _dataset(path)
     items = data.get("items") or {}
     placing = {name for name, item in items.items()
                if isinstance(item, dict) and item.get("place_result") == machine}
@@ -145,8 +171,7 @@ def machine_craft_note(machine: str | None, dataset_id: str | None = None) -> st
     if path:
         import json as _json
 
-        with path.open(encoding="utf-8") as f:
-            data = _json.load(f)
+        data = _dataset(path)
         entity = (data.get("entities") or {}).get(machine) or {}
         label = entity.get("display_name") or machine
         if label != machine:
@@ -231,6 +256,24 @@ def order_belts_for_reach(plan: list[dict], geometry: dict | None = None,
     return plan
 
 
+_DATASET_CACHE: dict = {}
+
+
+def _dataset(path: Path) -> dict:
+    """Дамп из файла с памятью: генератор спрашивает его по нескольку раз на блок, а
+    файл весит ~10 МБ (на каждое чтение уходило около 0.1 с). Ключ — путь, время
+    изменения и размер, поэтому новый дамп подхватывается сразу. Держим один дамп."""
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    cached = _DATASET_CACHE.get("entry")
+    if cached and cached[0] == key:
+        return cached[1]
+    with path.open(encoding="utf-8") as f:
+        data = json.load(f)
+    _DATASET_CACHE["entry"] = (key, data)
+    return data
+
+
 def dataset_path(dataset_id: str | None = None) -> Path | None:
     # Папка датасетов у каждого кабинета своя.
     directory = bp.dataset_dir()
@@ -243,16 +286,46 @@ def dataset_path(dataset_id: str | None = None) -> Path | None:
     return files[-1] if files else None
 
 
-def recipe_fluids(recipe: str | None, dataset_id: str | None = None) -> tuple[list, list]:
-    """Жидкости рецепта: (входы, выходы) по порядку записи в рецепте."""
+FUEL_FLUID = "топливо"        # имя жидкого топлива, когда какое именно — неважно (ключ ствола, подпись)
+
+
+def machine_burns_fluid(machine: str | None, geometry: dict | None = None) -> bool:
+    """У завода жидкое топливо: вход топлива — отдельный fluid box источника энергии (в геометрии первый, energy)."""
+    boxes = (bp.entity_record(machine, geometry) or {}).get("fluids") if machine else None
+    return bool(boxes and boxes[0].get("energy"))
+
+
+def energy_passthrough(machine: str | None, geometry: dict | None = None) -> tuple | None:
+    """Завод на жидком топливе, у которого вход топлива сквозной: два противоположных устья «вход-выход».
+
+    Такие заводы (стекольный, ядерный реактор) принимают топливо с одной стороны и отдают дальше стоящему рядом,
+    поэтому у столбца заводов вплотную топливо подводится только к торцам. Возвращает направления двух устьев."""
+    boxes = (bp.entity_record(machine, geometry) or {}).get("fluids") if machine else None
+    if not boxes or not boxes[0].get("energy"):
+        return None
+    pipes = [c for c in boxes[0].get("pipes") or [] if c.get("type") != "underground"]
+    if len(pipes) == 2 and all(c.get("flow") == "input-output" for c in pipes):
+        a, b = int(pipes[0].get("dir") or 0), int(pipes[1].get("dir") or 0)
+        if (a - b) % 16 == 8:
+            return (a, b)
+    return None
+
+
+def recipe_fluids(recipe: str | None, dataset_id: str | None = None, machine: str | None = None,
+                  geometry: dict | None = None) -> tuple[list, list]:
+    """Жидкости рецепта: (входы, выходы) по порядку записи в рецепте.
+
+    Завод на жидком топливе принимает топливо в свой первый вход, поэтому топливо — первая жидкость входов."""
+    inputs: list = []
+    outputs: list = []
     path = dataset_path(dataset_id)
-    if not path or not recipe:
-        return [], []
-    with path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    rec = (data.get("recipes") or {}).get(recipe) or {}
-    inputs = [i.get("name") for i in (rec.get("ingredients") or []) if i.get("type") == "fluid"]
-    outputs = [p.get("name") for p in (rec.get("products") or []) if p.get("type") == "fluid"]
+    if path and recipe:
+        data = _dataset(path)
+        rec = (data.get("recipes") or {}).get(recipe) or {}
+        inputs = [i.get("name") for i in (rec.get("ingredients") or []) if i.get("type") == "fluid"]
+        outputs = [p.get("name") for p in (rec.get("products") or []) if p.get("type") == "fluid"]
+    if machine_burns_fluid(machine, geometry) and not energy_passthrough(machine, geometry):
+        inputs = [FUEL_FLUID] + inputs
     return inputs, outputs
 
 
@@ -289,16 +362,15 @@ def machine_ports(machine: str, geometry: dict | None = None, direction: int = 0
                         "dx": machine_tile[0] + dx_dir, "dy": machine_tile[1] + dy_dir,
                         "side": bp.DIRECTIONS.get(cdir, str(cdir)),
                         "direction": cdir, "filter": conn.get("filter"),
+                        "energy": bool(box.get("energy")), "flow": conn.get("flow"),
                         "width": ww, "height": hh})
     return out
 
 
-def choose_ports(ports: list[dict], kind: str, need: int) -> list[dict]:
-    """Порты под жидкости рецепта: i-я жидкость идёт в i-й бокс этого типа.
+def choose_ports(ports: list[dict], kind: str, need: int, wall: int | None = None) -> list[dict]:
+    """Порты под жидкости рецепта: i-я жидкость идёт в i-й бокс порядка block_pipes.ordered_boxes.
 
-    Игра принимает каждую жидкость рецепта в свой fluid box по порядку записи в рецепте;
-    труба к другому боксу не работает.
-    """
+    Игра кладёт жидкость в любой подходящий вход, поэтому первыми берутся боксы с устьем на нужную стену (wall)."""
     if need <= 0:
         return []
     by_box: dict = {}
@@ -307,10 +379,30 @@ def choose_ports(ports: list[dict], kind: str, need: int) -> list[dict]:
             continue
         by_box.setdefault(port["box"], []).append(port)
     chosen: list[dict] = []
-    for box in sorted(by_box)[:need]:
+    for box in block_pipes.ordered_boxes(ports, kind, wall)[:need]:
         # у бокса может быть несколько устьев — берём верхнее, при равных рядах правое
         chosen.append(sorted(by_box[box], key=lambda p: (p["dy"], -p["dx"]))[0])
     return chosen
+
+
+def allowed_rotations(machine: str, geometry: dict | None = None) -> tuple:
+    """Повороты, при которых габарит завода остаётся тем же, что считает раскладка.
+
+    У квадратной постройки годятся все четыре. У прямоугольной (7×11) поворот на
+    восток/запад меняет ширину и высоту местами, а столбцы, ленты и манипуляторы
+    расставлены под исходный габарит — завод наезжал на ленту (находка прогона по
+    всем рецептам Py: «Постройки пересекаются»). Поэтому им — только север и юг,
+    а порт жидкости, не попавший на нужную стену, остаётся свободным тайлом.
+    """
+    size = bp.entity_size(machine, geometry)
+    rotations = (0, 8) if (size and size[0] != size[1]) else (0, 4, 8, 12)
+    through = energy_passthrough(machine, geometry)
+    if through:
+        # сквозное топливо должно идти вдоль столбца заводов (на север и юг), иначе соседи его не передадут
+        along = tuple(r for r in rotations if (through[0] + r) % 16 in (0, 8))
+        if along:
+            return along
+    return rotations
 
 
 def _rotation_for_drop(machine: str, recipe: str | None, geometry: dict | None,
@@ -326,11 +418,11 @@ def _rotation_for_drop(machine: str, recipe: str | None, geometry: dict | None,
 
     None — если ни один поворот не выгружает на нужную стену.
     """
-    inputs, outputs = recipe_fluids(recipe, dataset_id)
+    inputs, outputs = recipe_fluids(recipe, dataset_id, machine, geometry)
     need_in = 1 if inputs else 0
     need_out = 1 if outputs else 0
     candidates: list[tuple[int, int, list]] = []
-    for direction in (0, 4, 8, 12):
+    for direction in allowed_rotations(machine, geometry):
         if machine_drop_side(machine, direction, geometry) != drop_wall:
             continue
         ports = machine_ports(machine, geometry, direction)
@@ -352,11 +444,24 @@ def _rotation_for_drop(machine: str, recipe: str | None, geometry: dict | None,
             "note": "" if on_wall else "жидкость подведена не с той стороны, как просили"}
 
 
+def _reachable_fluid_boxes(ports: list[dict], need_in: int, need_out: int) -> int:
+    """Сколько боксов под жидкости рецепта имеют устье, смотрящее в коридор (на запад или восток)."""
+    count = 0
+    for role, need in (("input", need_in), ("output", need_out)):
+        boxes = {p["box"] for p in ports if p["production"] == role
+                 and any(q["box"] == p["box"] and q["direction"] in (4, 12) for q in ports)}
+        count += min(need, len(boxes))
+    return count
+
+
 def pick_rotation(machine: str, recipe: str | None, geometry: dict | None = None,
                   dataset_id: str | None = None, h: int | None = None,
                   wall_in: int | None = None, wall_out: int | None = None,
-                  drop_wall: int | None = None) -> dict:
+                  drop_wall: int | None = None, all_fluids: bool = False) -> dict:
     """Подбирает поворот завода так, чтобы жидкости смотрели в нужную сторону.
+
+    all_fluids — у каждой жидкости рецепта порт должен смотреть на нужную стену (в центре блока лента подачи, туда
+    трубу не подвести): иначе проверяется только первая жидкость входа и первая выхода.
 
     wall_in / wall_out — на какую стену должны попасть входы и выходы жидкости
     (12 = запад, 4 = восток, 0 = север, 8 = юг). Для ряда заводов вход должен
@@ -376,7 +481,7 @@ def pick_rotation(machine: str, recipe: str | None, geometry: dict | None = None
     w, height = size
     if h is not None:
         height = h
-    inputs, outputs = recipe_fluids(recipe, dataset_id)
+    inputs, outputs = recipe_fluids(recipe, dataset_id, machine, geometry)
     need_in = 1 if inputs else 0
     need_out = 1 if outputs else 0
     if not need_in and not need_out and drop_wall is None:
@@ -387,8 +492,28 @@ def pick_rotation(machine: str, recipe: str | None, geometry: dict | None = None
         if by_drop is not None:
             return by_drop
 
+    if all_fluids:
+        # Лента подачи по центру: сколько жидкостей рецепта смотрит наружу (на wall_in), столько и труб без цепочек
+        # через центр. Берём поворот, где наружу смотрит больше всего портов выбранных боксов.
+        best = None
+        for direction in allowed_rotations(machine, geometry):
+            ports = machine_ports(machine, geometry, direction)
+            chosen_in = choose_ports(ports, "input", len(inputs), wall_in)
+            chosen_out = choose_ports(ports, "output", len(outputs), wall_in)
+            if len(inputs) and not chosen_in:
+                continue
+            outward = sum(1 for p in chosen_in + chosen_out if p["direction"] == wall_in)
+            score = outward - (0 if direction in (0, 8) else 0.01)
+            if best is None or score > best["score"]:
+                best = {"direction": direction, "inputs": chosen_in, "outputs": chosen_out, "score": score,
+                        "note": "" if outward == len(chosen_in) + len(chosen_out)
+                        else "часть жидкостей смотрит в центр блока: туда идёт цепочка труб"}
+        if best is not None:
+            return best
+
     def fits(kind, ports, wall, row):
-        chosen = choose_ports(ports, kind, 1)
+        chosen = choose_ports(ports, kind, (len(inputs) if kind == "input" else len(outputs)) if all_fluids else 1,
+                              wall)
         if not chosen:
             return None
         if wall is None:
@@ -398,7 +523,7 @@ def pick_rotation(machine: str, recipe: str | None, geometry: dict | None = None
         return chosen if ok else None
 
     best = None
-    for direction in (0, 4, 8, 12):
+    for direction in allowed_rotations(machine, geometry):
         ports = machine_ports(machine, geometry, direction)
         chosen_in = None
         if need_in:
@@ -409,13 +534,16 @@ def pick_rotation(machine: str, recipe: str | None, geometry: dict | None = None
         if need_out:
             chosen_out = fits("output", ports, wall_out, None) if wall_out is not None else fits("output", ports, None, height)
         score = 10 + (5 if (need_out and chosen_out) else 0) - (0 if direction in (0, 8) else 1)
+        # При равенстве — поворот, в котором к трубам больше жидкостей рецепта достаёт
+        # коридор (у остальных порты смотрят вдоль стенки, и трубу туда не подвести).
+        score += 0.1 * _reachable_fluid_boxes(ports, len(inputs), len(outputs))
         if best is None or score > best["score"]:
             best = {"direction": direction, "inputs": chosen_in or [], "outputs": chosen_out or [],
                     "score": score, "note": ""}
     if best is not None:
         return best
     # строгие требования не выполнились — берём хоть какой-то вариант с входом
-    for direction in (0, 4, 8, 12):
+    for direction in allowed_rotations(machine, geometry):
         ports = machine_ports(machine, geometry, direction)
         chosen_in = choose_ports(ports, "input", need_in)
         chosen_out = choose_ports(ports, "output", need_out)
@@ -441,7 +569,7 @@ def reserve_fluid_tiles(machine: str, recipe: str | None, count: int,
     if not size:
         return {"tiles": [], "by_machine": {}, "ports": {}, "fluids": {}, "unreachable": []}
     w, h = size
-    inputs, outputs = recipe_fluids(recipe, dataset_id)
+    inputs, outputs = recipe_fluids(recipe, dataset_id, machine, geometry)
     ports = machine_ports(machine, geometry, direction)
     need_in = 1 if inputs else 0
     need_out = 1 if outputs else 0
@@ -798,7 +926,7 @@ def connect_pole_network(poles: list[tuple[int, int]], blocked: set,
     for tile in poles:
         mark_near(tile)
 
-    def closest_pair(comps: list[list[tuple[int, int]]]):
+    def closest_pair(comps: list[list[tuple[int, int]]], skip: set):
         """Самая близкая пара тайлов из РАЗНЫХ сетей — там и нужен провод.
 
         Перебор пар сетей с отсечением по габаритам: у молла столбов тысячи, и
@@ -820,6 +948,8 @@ def connect_pole_network(poles: list[tuple[int, int]], blocked: set,
                     continue          # сети и так дальше текущего лучшего
                 for a in comps[i]:
                     for b in comps[j]:
+                        if (a, b) in skip or (b, a) in skip:
+                            continue
                         d = math.dist(a, b)
                         if best is None or d < best[0]:
                             best = (d, a, b)
@@ -850,11 +980,14 @@ def connect_pole_network(poles: list[tuple[int, int]], blocked: set,
                     best = (score, (x, y))
         return best[1] if best else None
 
+    skip: set = set()                 # пары, которые сшить нечем (например, через ряд заводов): берём следующие
+    failed = None
     for _ in range(4 * len(poles) + 8):
         comps = pole_components(poles + added, wire)
         if len(comps) < 2:
+            failed = None
             break
-        pair = closest_pair(comps)
+        pair = closest_pair(comps, skip)
         if pair is None:
             break
         distance, left, right = pair
@@ -866,16 +999,71 @@ def connect_pole_network(poles: list[tuple[int, int]], blocked: set,
             if step is not None and math.dist(step, right) <= distance - 1.0:
                 tile = step
         if tile is None:
-            notes.append(
-                f"столбы распались на {len(comps)} сетей: между ними {distance:.0f} тайлов, "
-                f"а провод тянется на {wire:.0f} — свободного места под промежуточный столб "
-                f"нет, соедини сети проводом вручную")
-            break
+            failed = (len(comps), distance)
+            skip.add((left, right))
+            continue
         added.append(tile)
         blocked.add(tile)
         mark_near(tile)
 
+    if len(pole_components(poles + added, wire)) > 1:
+        comps_left = len(pole_components(poles + added, wire))
+        notes.append(
+            f"столбы распались на {comps_left} сетей: между ними нет свободного места под промежуточный столб "
+            f"(провод тянется на {wire:.0f} тайлов), соедини сети проводом вручную")
     return added, notes
+
+
+def repair_pole_coverage(entities: list, pole: str, geometry: dict | None, blocked: set,
+                        placed: list) -> tuple[list, int]:
+    """Добавляет столбы тем, кого основной расчёт столбов оставил без питания.
+
+    Находка прогона по всем рецептам Py: у больших заводов (11-22 тайла) манипуляторы
+    стоят посередине стенки, а столбы — только по краям, и зона питания (9×9 у
+    среднего столба) до них не дотягивается. Здесь жадно: на каждом шаге берём
+    свободный тайл, который накрывает больше всего непитающихся построек (при равенстве —
+    ближайший к уже стоящим столбам, чтобы провод дотянулся).
+
+    Возвращает (новые столбы [(x, y)], сколько построек так и осталось без питания).
+    """
+    supply, _wire = _supply_and_wire(pole, geometry)
+    consumers = []
+    for ent in entities:
+        if ent.get("name") == pole or not needs_power(ent.get("name") or "", geometry):
+            continue
+        tile = bp.tiles_of(ent, geometry)
+        if tile:
+            consumers.append(tile)
+    poles = list(placed)
+    starved = [c for c in consumers if not any(_covers(p, c, supply) for p in poles)]
+    added: list = []
+    reach = int(math.ceil(supply))
+    for _ in range(400):
+        if not starved:
+            break
+        best = None
+        candidates: set = set()
+        for (left, top, w, h) in starved:
+            for x in range(left - reach, left + w + reach):
+                for y in range(top - reach, top + h + reach):
+                    if (x, y) not in blocked:
+                        candidates.add((x, y))
+        for tile in candidates:
+            covered = sum(1 for c in starved if _covers(tile, c, supply))
+            if not covered:
+                continue
+            near = min((abs(tile[0] - p[0]) + abs(tile[1] - p[1]) for p in poles), default=0)
+            score = (-covered, near, tile[1], tile[0])
+            if best is None or score < best[0]:
+                best = (score, tile)
+        if best is None:
+            break
+        tile = best[1]
+        added.append(tile)
+        poles.append(tile)
+        blocked.add(tile)
+        starved = [c for c in starved if not _covers(tile, c, supply)]
+    return added, len(starved)
 
 
 def _column_reaches(column: int, consumer: tuple[int, int, int, int], supply: float) -> bool:
@@ -986,7 +1174,7 @@ def check_fluid_access(obj: dict, geometry: dict | None = None,
         rec = records.get(name) or {}
         if rec.get("type") not in bp.MACHINE_TYPES:
             continue
-        inputs, outputs = recipe_fluids(ent.get("recipe"), dataset_id)
+        inputs, outputs = recipe_fluids(ent.get("recipe"), dataset_id, name, geom)
         if not (inputs or outputs):
             continue
         # Смотрим ПО БОКСАМ: у завода может быть несколько подходов к одному
@@ -1060,8 +1248,7 @@ def _recipe_of(recipe: str | None, dataset_id: str | None = None) -> dict:
         return {}
     import json as _json
 
-    with path.open(encoding="utf-8") as f:
-        data = _json.load(f)
+    data = _dataset(path)
     return (data.get("recipes") or {}).get(recipe) or {}
 
 
@@ -1070,10 +1257,7 @@ def burnt_result(fuel: str | None, dataset_id: str | None = None) -> str | None:
     path = dataset_path(dataset_id)
     if not path or not fuel:
         return None
-    import json as _json
-
-    with path.open(encoding="utf-8") as f:
-        item = (_json.load(f).get("items") or {}).get(fuel) or {}
+    item = (_dataset(path).get("items") or {}).get(fuel) or {}
     return item.get("burnt_result") or None
 
 
@@ -1108,8 +1292,7 @@ def supply_belt_count(spec: "BlockSpec", dataset_id: str | None = None) -> int:
         return 1
     import json as _json
 
-    with path.open(encoding="utf-8") as f:
-        data = _json.load(f)
+    data = _dataset(path)
     rec = (data.get("recipes") or {}).get(spec.recipe) or {}
     solids = [i for i in (rec.get("ingredients") or []) if i.get("type") == "item"]
     count = len(solids)
@@ -1126,7 +1309,8 @@ def supply_belt_count(spec: "BlockSpec", dataset_id: str | None = None) -> int:
 
 
 def _column_plan(spec: BlockSpec, geometry: dict, count: int, wall_in: int,
-                 drop_wall: int | None = None, pitch: int | None = None) -> dict:
+                 drop_wall: int | None = None, pitch: int | None = None, center: bool = False,
+                 split_outputs: bool = False) -> dict:
     """Поворот завода под нужную внешнюю стену и зарезервированные тайлы столбца.
 
     `pitch` — шаг заводов в столбце (высота завода плюс, если постройка сама
@@ -1134,21 +1318,37 @@ def _column_plan(spec: BlockSpec, geometry: dict, count: int, wall_in: int,
     с шагом h порты нижних заводов «уезжали» на чужое место, и манипулятор
     вставал ровно на устье трубы.
     """
-    wall_out = 4 if wall_in == 12 else 12
+    wall_out = wall_in if center else (4 if wall_in == 12 else 12)
     rotation = pick_rotation(spec.machine, spec.recipe, geometry, spec.dataset_id,
-                             None, wall_in=wall_in, wall_out=wall_out, drop_wall=drop_wall)
+                             None, wall_in=wall_in, wall_out=wall_out, drop_wall=drop_wall, all_fluids=center)
     direction = int(rotation.get("direction") or 0)
-    if not spec.reserve_fluid_tiles:
-        return {"rotation": rotation, "direction": direction, "reserved": set(), "ports": []}
     size = bp.entity_size(spec.machine, geometry)
     w, h = size
     step = h if not pitch else pitch
+    if not spec.reserve_fluid_tiles:
+        return {"rotation": rotation, "direction": direction, "reserved": set(), "ports": [], "all_ports": [],
+                "used_ports": [], "offsets": [index * step for index in range(count)],
+                "directions": [direction] * count}
     reserved: set = set()
     ports: list = []
+    all_ports: list = []   # ВСЕ устья завода: на них тоже нельзя ставить манипулятор
     chosen = rotation.get("inputs", []) + rotation.get("outputs", [])
     # Резервируются все порты завода в этом повороте, а не только выбранные боксы: у
     # многобоксовых построек устья бывают с обеих сторон.
     every_port = machine_ports(spec.machine, geometry, direction)
+    # Устья ИСПОЛЬЗУЕМЫХ боксов (по одному на каждую жидкость рецепта), смотрящие в коридор:
+    # к ним ведут трубы, и манипулятор рядом с ними не нужен.
+    inputs_f, outputs_f = recipe_fluids(spec.recipe, spec.dataset_id, spec.machine, geometry)
+    used_boxes: set = set()
+    for role, fluids in (("input", inputs_f), ("output", outputs_f)):
+        boxes = block_pipes.ordered_boxes(every_port, role, wall_in if role == "input" else wall_out,
+                                          alternate=split_outputs and role == "output", count=len(fluids))
+        used_boxes.update(boxes[:len(fluids)])
+    used_mouths = [p for p in every_port if p["box"] in used_boxes and p["direction"] in (4, 12)]
+    used_ports: list = []
+    for index in range(count):
+        for port in used_mouths:
+            used_ports.append((port["dx"], index * step + port["dy"]))
     for index in range(count):
         top = index * step
         for port in chosen:
@@ -1156,9 +1356,114 @@ def _column_plan(spec: BlockSpec, geometry: dict, count: int, wall_in: int,
                 reserved.add((port["dx"], top + port["dy"] + dy))
             ports.append((port["dx"], top + port["dy"]))
         for port in every_port:
+            all_ports.append((port["dx"], top + port["dy"]))
             for dy in (-1, 0, 1):
                 reserved.add((port["dx"], top + port["dy"] + dy))
-    return {"rotation": rotation, "direction": direction, "reserved": reserved, "ports": ports}
+    return {"rotation": rotation, "direction": direction, "reserved": reserved, "ports": ports,
+            "all_ports": all_ports, "used_ports": used_ports,
+            "offsets": [index * step for index in range(count)], "directions": [direction] * count}
+
+
+def _gap_offsets(count: int, h: int) -> list[int]:
+    """Верхи заводов столбца парами: завод, зазор в один тайл, завод; пары стоят вплотную друг к другу."""
+    return [(i // 2) * (2 * h + 1) + (i % 2) * (h + 1) for i in range(count)]
+
+
+def _column_height(count: int, h: int, pitch: int, gap_pairs: bool) -> int:
+    """Высота столбца из count заводов."""
+    if count <= 0:
+        return 0
+    if gap_pairs:
+        return _gap_offsets(count, h)[-1] + h
+    return (count - 1) * pitch + h
+
+
+class _GapUnavailable(ValueError):
+    """Раскладка парами с зазором для этой постройки и рецепта невозможна."""
+
+
+def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int) -> dict | None:
+    """Столбец зеркальными парами: верхний завод смотрит устьем жидкости вниз, нижний — вверх, между ними зазор.
+
+    Для жидкости, чей порт стоит по центру стенки и смотрит вдоль столбца (шаблон «Фабрика наноматериалов»):
+    труба в зазоре подключает сразу два соседних завода. Остальные жидкости идут как обычно (наружу и в коридор).
+    None — подходящей раскладки нет."""
+    size = bp.entity_size(spec.machine, geometry)
+    if not size:
+        return None
+    w, h = size
+    wall_out = 4 if wall_in == 12 else 12
+    walls = {"input": wall_in, "output": wall_out}
+    inputs_f, outputs_f = recipe_fluids(spec.recipe, spec.dataset_id, spec.machine, geometry)
+    fluids = [("input", f) for f in inputs_f] + [("output", f) for f in outputs_f]
+    allowed = allowed_rotations(spec.machine, geometry)
+    for r_a in allowed:
+        r_b = (r_a + 8) % 16
+        if r_b not in allowed:
+            continue
+        ports = {r_a: machine_ports(spec.machine, geometry, r_a), r_b: machine_ports(spec.machine, geometry, r_b)}
+        for role, fluid in fluids:
+            for pa in ports[r_a]:
+                if pa["production"] != role or pa["direction"] != 8 or pa.get("energy"):
+                    continue
+                pb = next((p for p in ports[r_b] if p["box"] == pa["box"]), None)
+                if pb is None or pb["direction"] != 0 or pb["dx"] != pa["dx"]:
+                    continue                                # устья двух заводов пары не встретились в одной клетке
+                gap_box = pa["box"]
+                others = {r: [f for rl, f in fluids if rl == r and (rl, f) != (role, fluid)]
+                          for r in ("input", "output")}
+                good = True
+                chosen: dict = {}
+                for direction in (r_a, r_b):
+                    mine = [p for p in ports[direction] if p["box"] != gap_box]
+                    picked = []
+                    for r in ("input", "output"):
+                        boxes = block_pipes.ordered_boxes(mine, r, walls[r])[:len(others[r])]
+                        for box in boxes:
+                            mouths = [p for p in mine if p["box"] == box]
+                            # у повёрнутого на 180° завода пары стены меняются местами: порт может смотреть и в
+                            # коридор — это тоже годится (цепочка в центре), не годится только вдоль столбца
+                            facing = ([p for p in mouths if p["direction"] == walls[r]]
+                                      or [p for p in mouths if p["direction"] in (4, 12)])
+                            if not facing:
+                                good = False
+                                break
+                            picked.append(sorted(facing, key=lambda p: (p["dy"], -p["dx"]))[0])
+                        if not good:
+                            break
+                    if not good:
+                        break
+                    chosen[direction] = picked
+                if not good:
+                    continue
+                directions = [r_a if i % 2 == 0 else r_b for i in range(count)]
+                offsets = _gap_offsets(count, h)
+                reserved: set = set()
+                ports_out: list = []
+                all_ports: list = []
+                used_ports: list = []
+                gap_rows: list = []
+                for index, (direction, top) in enumerate(zip(directions, offsets)):
+                    every = ports[direction]
+                    gap_port = next(p for p in every if p["box"] == gap_box)
+                    for port in chosen[direction] + [gap_port]:
+                        for dy in (-1, 0, 1):
+                            reserved.add((port["dx"], top + port["dy"] + dy))
+                        ports_out.append((port["dx"], top + port["dy"]))
+                    for port in every:
+                        all_ports.append((port["dx"], top + port["dy"]))
+                        for dy in (-1, 0, 1):
+                            reserved.add((port["dx"], top + port["dy"] + dy))
+                    used = {gap_box} | {p["box"] for p in chosen[direction]}
+                    used_ports += [(p["dx"], top + p["dy"]) for p in every if p["box"] in used
+                                   and p["direction"] in (4, 12)]
+                    if index % 2 == 0:                      # верхний завод пары (или одиночный последний): зазор под ним
+                        gap_rows.append((top + h, pa["dx"]))
+                return {"rotation": {"direction": r_a, "inputs": [], "outputs": [], "note": ""},
+                        "direction": r_a, "directions": directions, "offsets": offsets, "reserved": reserved,
+                        "ports": ports_out, "all_ports": all_ports, "used_ports": used_ports,
+                        "gap": {"key": (role, fluid), "box": gap_box, "rows": gap_rows, "dx": pa["dx"]}}
+    return None
 
 
 def layout_group_rows(groups: list[int], row_groups: list | None) -> list[list[int]]:
@@ -1190,7 +1495,8 @@ def layout_group_rows(groups: list[int], row_groups: list | None) -> list[list[i
     return out
 
 
-def group_width_tiles(w: int, supply_belts: int, out_belt: bool, dumps: bool = False) -> int:
+def group_width_tiles(w: int, supply_belts: int, out_belt: bool, dumps: bool = False,
+                      single_column: bool = False, center_supply: bool = False, center_extra: int = 0) -> int:
     """Ширина одной группы в тайлах — как её раскладывает generate_sandwich_block.
 
         [ленты подачи][манипулятор][заводы][манипулятор][лента выгрузки][манипулятор][заводы][манипулятор][ленты подачи]
@@ -1198,9 +1504,15 @@ def group_width_tiles(w: int, supply_belts: int, out_belt: bool, dumps: bool = F
     `dumps` — постройка сама кладёт продукт на ленту (см. drops_to_belt): тогда
     между столбцами нет манипуляторов, а лента стоит вплотную к заводам.
     """
+    if center_supply:
+        return w + 3 + w                                # манипулятор + лента подачи + манипулятор между столбцами
     width = (supply_belts + 1) if supply_belts else 0   # ленты подачи + ряд манипуляторов
     width += w                                          # левый столбец заводов
+    if single_column:
+        return width + 1                                # погрузчик на тайле выгрузки, дальше — ленты игрока
     width += 1 if (dumps or not out_belt) else 3        # лента выгрузки вплотную или манипулятор+лента+манипулятор
+    if not out_belt:
+        width += center_extra                           # стволы жидкостей в середине коридора
     width += w                                          # правый столбец заводов
     if supply_belts:
         width += 1 + supply_belts                       # манипулятор + ленты подачи
@@ -1267,6 +1579,24 @@ def occupied_tiles(entities: list, geometry: dict | None = None,
 
 
 def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> dict:
+    """Группа заводов «бутербродом» (см. _sandwich_block). Если у порта жидкости нет образца из-за того, что он смотрит
+    вдоль стенки, пробуем раскладку зеркальными парами с зазором, где труба в зазоре подключает два завода сразу."""
+    try:
+        return _sandwich_block(spec, geometry)
+    except UnsupportedLayout as first:
+        if not spec.pipes or "смотрит вдоль стенки" not in str(first):
+            raise
+        try:
+            obj = _sandwich_block(spec, geometry, gap_pairs=True)
+        except (_GapUnavailable, UnsupportedLayout, ValueError):
+            raise first from None
+        notes = bp.blueprint_of(obj).get("description") or ""
+        if "соедини сам" in notes or "проведи сам" in notes:
+            raise first                                 # раскладка парами вышла, но труба осталась разорванной
+        return obj
+
+
+def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: bool = False) -> dict:
     """Группа заводов «бутербродом»: два столбца, между ними лента выгрузки.
 
         [лента подачи][манипулятор][заводы][манипулятор][лента выгрузки][манипулятор][заводы][манипулятор][лента подачи]
@@ -1293,6 +1623,7 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
     number = 1
     gap = 2  # между группами в ряду ровно две ленты
     reserved_all: set = set()
+    ports_global: set = set()   # устья труб ВСЕХ групп: столб, вставший на чужое устье, убираем
     port_all: list = []
     rotations: list = []
     sandwich_problems: list = []
@@ -1310,27 +1641,117 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
     # Постройка сама кладёт продукт на ленту (буры, Py-экстракторы, литейные
     # аппараты)? Тогда манипулятор на выход не нужен, лента встаёт вплотную к
     # столбцу — ровно на тайл выгрузки, и поворот обязан смотреть на неё.
-    self_dump = drops_to_belt(spec.machine, geom) is not None and out_belt_all
-    fluid_in_all, fluid_out_all = recipe_fluids(spec.recipe, spec.dataset_id)
+    # Постройка с выгрузкой не меньше целой ленты (литейная) сама на ленту не успевает: на тайле выгрузки стоит
+    # погрузчик, и каждый завод выгружает на СВОЮ ленту (её тянет игрок). Заводы стоят одним столбцом: справа от
+    # погрузчика место свободно, никакой общей ленты нет.
+    loader_out = bool(spec.inserter_out) and device_is_loader(spec.inserter_out, geom)
+    dump_capable = drops_to_belt(spec.machine, geom) is not None and out_belt_all
+    own_loader = dump_capable and loader_out
+    self_dump = dump_capable and not loader_out
+    fluid_in_all, fluid_out_all = recipe_fluids(spec.recipe, spec.dataset_id, spec.machine, geom)
     # Зазор в клетку между заводами: вместе с поворотом «выгрузка на ленту» порты
     # жидкости уезжают на север/юг, а в тесном столбце трубу к ним не подвести —
     # соседний завод занимает ровно тот тайл. Пустая клетка и есть труба.
     col_gap = 1 if (self_dump and (fluid_in_all or fluid_out_all)
                     and spec.reserve_fluid_tiles) else 0
     pitch = h + col_gap
-    group_width = group_width_tiles(w, supply_belts_all, out_belt_all, dumps=self_dump)
+    # Твёрдого выхода нет, а лента подачи одна: она едет по центру, манипуляторы с обеих сторон берут с неё, а
+    # жидкости идут цепочками снаружи столбцов (шаблон «Две выходные жидкости — ацетилен»).
+    in_plan_all = inserter_belt_plan(spec.inserter_in_rows, supply_belts_all)
+    input_loader_all = (any(device_is_loader(b["name"], geom) for b in in_plan_all)
+                        or device_is_loader(spec.inserter_in, geom))
+    # Центр свободен, пока выходная жидкость одна (шаблон с литейной «1 лента 1 жидкость на вход — 1 на выход»:
+    # лента подачи снаружи, в середине общая труба). Две и больше выходных жидкостей в одном коридоре не поместятся.
+    center_supply = (not out_belt_all and supply_belts_all == 1 and not input_loader_all and not own_loader
+                     and len(fluid_out_all) >= 2)
+    # Лента выгрузки занимает коридор: две выходные жидкости идут по разным стенам (одна в коридор, другая наружу)
+    split_outputs = out_belt_all and not center_supply and not own_loader and len(fluid_out_all) > 1
+    # Раскладка парами с зазором: рецепт, порт жидкости которого смотрит вдоль столбца (см. _gap_column)
+    gap_left = gap_right = None
+    fluid_in_eff, fluid_out_eff = fluid_in_all, fluid_out_all
+    if gap_pairs:
+        if center_supply or own_loader or self_dump or not spec.pipes:
+            raise _GapUnavailable("раскладка парами для этого блока не годится")
+        gap_left = _gap_column(spec, geom, 2, 12)
+        gap_right = _gap_column(spec, geom, 2, 4)
+        if (not gap_left or not gap_right or gap_left["gap"]["key"] != gap_right["gap"]["key"]
+                or gap_left["gap"]["box"] != gap_right["gap"]["box"]):
+            raise _GapUnavailable("нет раскладки парами")
+        gap_key = gap_left["gap"]["key"]
+        fluid_in_eff = [f for f in fluid_in_all if ("input", f) != gap_key]
+        fluid_out_eff = [f for f in fluid_out_all if ("output", f) != gap_key]
+    # Жидкостей, которые идут в коридор между столбцами, больше одной (и ленты там нет): лишние получают стволы
+    # посередине, коридор расширяется на полосу и по три тайла на ствол.
+    center_extra = 0
+    if (spec.pipes and not out_belt_all and not center_supply and not own_loader and not self_dump
+            and not gap_pairs and (fluid_in_all or fluid_out_all)):
+        rot = _column_plan(spec, geom, 1, wall_in=12, pitch=pitch)["rotation"]
+        inward = block_pipes.inner_keys(machine_ports(spec.machine, geom, int(rot.get("direction") or 0)),
+                                        block_pipes.WEST, fluid_in_all, fluid_out_all)
+        if len(inward) > 1:
+            center_extra = 1 + 3 * (len(inward) - 1)
+    group_width = group_width_tiles(w, supply_belts_all, out_belt_all, dumps=self_dump, single_column=own_loader,
+                                    center_supply=center_supply, center_extra=center_extra)
     placements: list = []          # [(номер группы, x, y)]
+    # Под стволы труб с краёв группы нужны свободные столбцы: слева и справа от
+    # каждой группы. Считаем их по повороту столбцов заранее — от них зависит и
+    # промежуток между группами, и отступ первой группы от края блока.
+    pipe_w_left = pipe_w_right = 0
+    if spec.pipes and (fluid_in_all or fluid_out_all):
+        dump_walls = (4, 12) if (out_belt_all and self_dump) else ((4, None) if own_loader else (None, None))
+        rot_left = _column_plan(spec, geom, 1, wall_in=12, drop_wall=dump_walls[0], pitch=pitch,
+                                center=center_supply, split_outputs=split_outputs)["rotation"]
+        rot_right = _column_plan(spec, geom, 1, wall_in=4, drop_wall=dump_walls[1], pitch=pitch,
+                                 center=center_supply, split_outputs=split_outputs)["rotation"]
+        ports_left = machine_ports(spec.machine, geom, int(rot_left.get("direction") or 0))
+        ports_right = machine_ports(spec.machine, geom, int(rot_right.get("direction") or 0))
+        if gap_pairs:
+            ports_left = [p for p in machine_ports(spec.machine, geom, gap_left["direction"])
+                          if p["box"] != gap_left["gap"]["box"]]
+            ports_right = [p for p in machine_ports(spec.machine, geom, gap_right["direction"])
+                           if p["box"] != gap_right["gap"]["box"]]
+        west_keys = block_pipes.outer_keys(
+            ports_left, block_pipes.WEST, fluid_in_eff, fluid_out_eff, inward_outputs=not center_supply,
+            split_outputs=split_outputs)
+        east_keys = block_pipes.outer_keys(
+            ports_right, block_pipes.EAST, fluid_in_eff, fluid_out_eff, inward_outputs=not center_supply,
+            split_outputs=split_outputs)
+        chain_ok = (block_pipes.chain_feasible(pitch, block_pipes._max_underground(geom, spec.pipe_ground))
+                    and not gap_pairs)               # в режиме пар цепочку занимает жидкость из зазора
+        west_keys = block_pipes.trunk_keys(west_keys, chain_ok)   # первая жидкость стороны идёт цепочкой у стенки
+        east_keys = block_pipes.trunk_keys(east_keys, chain_ok)   # завода, ствол с краю группы нужен остальным
+        if own_loader:
+            east_keys = []                        # заводов только в левом столбце, справа труб нет
+        pipe_w_left = block_pipes.side_width(len(west_keys))
+        pipe_w_right = block_pipes.side_width(len(east_keys))
+        if center_supply:
+            # снаружи столбцов лент подачи нет, а цепочка у стенки завода нуждается в своей полосе
+            pipe_w_left += 1
+            pipe_w_right += 1
+        gap = max(gap, pipe_w_left + pipe_w_right)
+        # Соседние стволы одной жидкости (правый ствол группы и левый следующей) сдвигаем на тайл, чтобы это
+        # был один общий ствол, а не две трубы рядом. Если жидкости разные, между ними пустой тайл.
+        if west_keys and east_keys:
+            if west_keys[-1] == east_keys[-1]:
+                gap -= 1
+            elif west_keys != east_keys:
+                gap += 1
+    gap_extra: list = []           # (рамка группы, сторона, ключ, тайл полосы) — порты жидкости из зазоров (раскладка парами)
+    group_boxes: list = []         # (левый x, правый x без края, верх, низ) каждой группы
+    row_gap = ROW_GAP
     y_row = 0
     for row_ids in layout_rows:
-        x_row = 0
+        x_row = pipe_w_left
         row_height = 0
         for group_index in row_ids:
             placements.append((group_index, x_row, y_row))
-            row_height = max(row_height, ((groups[group_index] + 1) // 2) * pitch)
+            row_height = max(row_height, _column_height(
+                groups[group_index] if own_loader else (groups[group_index] + 1) // 2, h, pitch, gap_pairs) + (
+                    0 if gap_pairs else pitch - h))
             x_row += group_width + gap
-        y_row += row_height + ROW_GAP
+        y_row += row_height + row_gap
     for group_index, count, x_cursor, y0 in group_placements(groups, placements):
-        left_count = (count + 1) // 2          # 20 -> 10 и 10, 21 -> 11 и 10
+        left_count = count if own_loader else (count + 1) // 2          # 20 -> 10 и 10, 21 -> 11 и 10
         right_count = count - left_count
         rows = max(left_count, right_count)
         # столбцы: [подача][манипулятор][заводы][манипулятор][выгрузка][манипулятор][заводы][манипулятор][подача]
@@ -1359,21 +1780,29 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
         # Поворот каждого столбца — ДО раскладки: от него зависит, попадёт ли
         # выгрузка «своими руками» на ленту (тогда манипулятор на выход не нужен).
         plan_left = _column_plan(spec, geom, left_count, wall_in=12,
-                                 drop_wall=4 if (out_belt and self_dump) else None,
-                                 pitch=pitch)
+                                 drop_wall=4 if (out_belt and (self_dump or own_loader)) else None,
+                                 pitch=pitch, center=center_supply, split_outputs=split_outputs)
         plan_right = _column_plan(spec, geom, right_count, wall_in=4,
                                   drop_wall=12 if (out_belt and self_dump) else None,
-                                  pitch=pitch)
+                                  pitch=pitch, center=center_supply, split_outputs=split_outputs)
+        if gap_pairs:
+            plan_left = _gap_column(spec, geom, left_count, 12)
+            plan_right = _gap_column(spec, geom, right_count, 4)
         drops_on_belt = (out_belt and self_dump
                          and machine_drop_side(spec.machine, plan_left["direction"], geom) == 4
                          and machine_drop_side(spec.machine, plan_right["direction"], geom) == 12)
+        loader_drop = (out_belt and own_loader
+                       and machine_drop_side(spec.machine, plan_left["direction"], geom) == 4)
+        if out_belt and own_loader and not loader_drop:
+            sandwich_problems.append("погрузчик не встал на тайл выгрузки: у этой постройки нет поворота, "
+                                     "при котором она выгружает на восток, — поставь погрузчик сам")
         if out_belt and self_dump and not drops_on_belt:
             for plan in (plan_left, plan_right):
                 if plan["rotation"].get("note"):
                     sandwich_problems.append(plan["rotation"]["note"])
         # ширина группы: ленты подачи + манипуляторы + заводы + манипулятор + выгрузка
         x_left_first_belt = x_left_ins = None
-        if supply_belts:
+        if supply_belts and not center_supply:
             x_left_first_belt = x_cursor
             x_left_ins = x_left_first_belt + supply_belts
             x_left = x_left_ins + 1
@@ -1385,6 +1814,17 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
             x_mid_ins_l = x_mid_ins_r = None
             x_out_belt = x_left + w
             x_right = x_out_belt + 1
+        elif own_loader and loader_drop:
+            # Погрузчик на тайле выгрузки, лента выгрузки каждого завода — своя, её тянет игрок.
+            x_mid_ins_l = x_left + w
+            x_out_belt = x_mid_ins_r = None
+            x_right = x_mid_ins_l + 1
+        elif center_supply:
+            # Лента подачи по центру: манипуляторы по обе стороны берут с неё в заводы.
+            x_mid_ins_l = x_left + w
+            x_out_belt = x_mid_ins_l + 1
+            x_mid_ins_r = x_out_belt + 1
+            x_right = x_mid_ins_r + 1
         elif out_belt:
             x_mid_ins_l = x_left + w
             x_out_belt = x_mid_ins_l + 1
@@ -1394,22 +1834,24 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
             # Тайл между столбцами оставляем пустым: в него смотрят выходы
             # жидкостей, и трубу туда поставить будет можно.
             x_mid_ins_l = x_out_belt = x_mid_ins_r = None
-            x_right = x_left + w + 1
+            x_right = x_left + w + 1 + center_extra
         x_right_ins = x_right_first_belt = None
-        if supply_belts:
+        if supply_belts and not own_loader and not center_supply:
             x_right_ins = x_right + w
             x_right_first_belt = x_right_ins + 1
         # правый край группы: за лентой подачи, а без неё — сразу за заводами.
         # Ширина группы заранее посчитана в group_width_tiles — по ней раскладывались
         # ряды; здесь она не нужна (позиции групп заданы placements).
-        x_end = (x_right_first_belt + supply_belts) if supply_belts else (x_right + w)
-        height = (rows - 1) * pitch + h
+        x_end = (x_right_first_belt + supply_belts) if (supply_belts and not own_loader and not center_supply) else (
+            x_right if own_loader else x_right + w)
+        height = _column_height(rows, h, pitch, gap_pairs)
+        group_boxes.append((x_cursor, x_end, y0, y0 + height))
 
         rotations.append((plan_left["direction"], plan_right["direction"]))
         for plan, x0 in ((plan_left, x_left), (plan_right, x_right)):
             for (px, py) in plan["reserved"]:
-                reserved_all.add((x0 + px, py))
-            port_all.extend((x0 + px, py) for (px, py) in plan["ports"])
+                reserved_all.add((x0 + px, y0 + py))
+            port_all.extend((x0 + px, y0 + py) for (px, py) in plan["ports"])
         if drops_on_belt:
             sandwich_notes.append(
                 "постройка сама кладёт продукт на ленту — манипуляторов на выход нет"
@@ -1464,6 +1906,9 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
             # Добор: ряды рядом с портом, но не сам тайл порта.
             spare = [y for y in candidates if y not in free
                      and (not ports or (column, y) not in ports)]
+            # Соседи ВЫБРАННЫХ портов лучше оставить трубам: между портами
+            # подземные трубы встают именно туда (см. block_pipes, цепочки).
+            spare.sort(key=lambda y: (column, y) in pipe_zone)
             return (free + spare)[:need]
 
         def place_inserters(column: int, rows: list[int], name: str, direction: int,
@@ -1532,12 +1977,21 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
                                    and not loader_without_belts) else None
                     put(name, column, row, place_direction, pickup, entity_type=place_type)
 
+        pipe_zone: set = set()   # соседи выбранных портов вдоль коридора (заполняется ниже)
+
         # Тайлы подключения труб всего блока: манипулятор на них не ставим.
         # Считаем ДО лент: свободные ряды решают, где встанут манипуляторы, а
         # значит и где кончаются ленты (см. belt_span ниже).
         port_tiles = set()
         for plan, x0 in ((plan_left, x_left), (plan_right, x_right)):
-            port_tiles.update((x0 + px, py) for (px, py) in plan["ports"])
+            port_tiles.update((x0 + px, y0 + py) for (px, py) in plan["ports"])
+            # Не только выбранные боксы: манипулятор, вставший на устье ВТОРОГО входа
+            # жидкости, закрывает его так же (находка прогона по всем рецептам Py).
+            port_tiles.update((x0 + px, y0 + py) for (px, py) in plan.get("all_ports", []))
+        ports_global.update(port_tiles)
+        for plan, x0 in ((plan_left, x_left), (plan_right, x_right)):
+            for (px, py) in list(plan["ports"]) + list(plan.get("used_ports", [])):
+                pipe_zone.update(((x0 + px, y0 + py - 1), (x0 + px, y0 + py + 1)))
 
         in_far = supply_belts >= 2
         # Манипуляторы: имя приходит с сайта (раздел «Манипуляторы»). Пустое имя — числа
@@ -1599,13 +2053,19 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
 
         # Ряды манипуляторов по всем заводам группы: столбец подачи и выгрузки.
         # Шаг столбца — pitch (высота завода плюс, если надо, клетка под трубы).
-        left_in_rows = [inserter_rows(x_left_ins, y0 + i * pitch, in_count, False)
+        left_in_rows = [inserter_rows(x_left_ins, y0 + plan_left["offsets"][i], in_count, False)
                         for i in range(left_count)] if x_left_ins is not None else []
-        mid_l_rows = [inserter_rows(x_mid_ins_l, y0 + i * pitch, out_count, False)
-                      for i in range(left_count)] if x_mid_ins_l is not None else []
-        right_in_rows = [inserter_rows(x_right_ins, y0 + i * pitch, in_count, False)
+        if own_loader and x_mid_ins_l is not None:
+            drop_y = drop_tile(spec.machine, plan_left["direction"], geom)[1]
+            mid_l_rows = [[y0 + plan_left["offsets"][i] + drop_y] for i in range(left_count)]
+        else:
+            mid_count = in_count if center_supply else out_count
+            mid_l_rows = [inserter_rows(x_mid_ins_l, y0 + plan_left["offsets"][i], mid_count, False)
+                          for i in range(left_count)] if x_mid_ins_l is not None else []
+        right_in_rows = [inserter_rows(x_right_ins, y0 + plan_right["offsets"][i], in_count, False)
                          for i in range(right_count)] if x_right_ins is not None else []
-        mid_r_rows = [inserter_rows(x_mid_ins_r, y0 + i * pitch, out_count, False)
+        mid_r_rows = [inserter_rows(x_mid_ins_r, y0 + plan_right["offsets"][i], in_count if center_supply else out_count,
+                                    False)
                       for i in range(right_count)] if x_mid_ins_r is not None else []
 
         # Тайлы выгрузки «своими руками»: лента выгрузки обязана их накрыть —
@@ -1616,7 +2076,7 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
                 tile = drop_tile(spec.machine, plan["direction"], geom)
                 if tile is None:
                     continue
-                drop_rows.extend(y0 + index * pitch + tile[1] for index in range(total))
+                drop_rows.extend(y0 + plan["offsets"][index] + tile[1] for index in range(total))
 
         def flat(rows_by_machine: list[list[int]]) -> list[int]:
             """Ряды всех машин группы одним списком."""
@@ -1669,7 +2129,7 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
             (x_left_first_belt, supply_belts, flat(left_in_rows), 0, True),
             (x_right_first_belt, supply_belts, flat(right_in_rows), 0, True),
             (x_out_belt, 1 if x_out_belt is not None else 0,
-             drop_rows or flat(mid_l_rows + mid_r_rows), out_direction, False),
+             drop_rows or flat(mid_l_rows + mid_r_rows), 0 if center_supply else out_direction, center_supply),
         ):
             if x_first is None or not count:
                 continue
@@ -1688,21 +2148,39 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
                         belt_turn.get((x_first + offset, y), direction))
 
         for index in range(left_count):
-            top = y0 + index * pitch
-            machine(x_left, top, plan_left["direction"])
+            top = y0 + plan_left["offsets"][index]
+            machine(x_left, top, plan_left["directions"][index])
             if x_left_ins is not None:
                 place_input_inserters(x_left_ins, left_in_rows[index], 12)
-            if x_mid_ins_l is not None:
+            if x_mid_ins_l is not None and center_supply:
+                place_input_inserters(x_mid_ins_l, mid_l_rows[index], 4)
+            elif x_mid_ins_l is not None:
                 place_inserters(x_mid_ins_l, mid_l_rows[index], spec.inserter_out, 12,
                                 loader_type="output")
         for index in range(right_count):
-            top = y0 + index * pitch
-            machine(x_right, top, plan_right["direction"])
+            top = y0 + plan_right["offsets"][index]
+            machine(x_right, top, plan_right["directions"][index])
             if x_right_ins is not None:
                 place_input_inserters(x_right_ins, right_in_rows[index], 4)
-            if x_mid_ins_r is not None:
+            if x_mid_ins_r is not None and center_supply:
+                place_input_inserters(x_mid_ins_r, mid_r_rows[index], 12)
+            elif x_mid_ins_r is not None:
                 place_inserters(x_mid_ins_r, mid_r_rows[index], spec.inserter_out, 4,
                                 loader_type="output")
+
+        if gap_pairs:
+            sandwich_notes.append(
+                "порт жидкости смотрит вдоль стенки: заводы стоят парами через зазор в один тайл, труба в зазоре "
+                "питает сразу два завода и по ряду зазора уходит к цепочке у полосы манипуляторов")
+            # Труба из зазора между заводами пары идёт по ряду зазора к полосе столба: там её подхватывает цепочка
+            for plan, x0, lane, side in ((plan_left, x_left, x_left - 1, block_pipes.WEST),
+                                         (plan_right, x_right, x_right + w, block_pipes.EAST)):
+                for rel_y, dx in plan["gap"]["rows"]:
+                    y_abs = y0 + rel_y
+                    lo, hi = (lane + 1, x0 + dx) if side == block_pipes.WEST else (x0 + dx, lane - 1)
+                    for xx in range(lo, hi + 1):
+                        put(spec.pipe, xx, y_abs)
+                    gap_extra.append(((x_cursor, x_end, y0, y0 + height), side, plan["gap"]["key"], (lane, y_abs)))
 
         # столбы: только для тех, кому нужно электричество, цепочкой вдоль коридоров
         if spec.pole:
@@ -1836,6 +2314,96 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
                 number += 1
             if problems:
                 sandwich_problems.extend(problems)
+
+    # Подземные трубы к портам, смотрящим наружу: после заводов и лент, до сети
+    # столбов — столбам нельзя вставать на тайлы труб.
+    unresolved_pipes: list = []
+    if spec.pipes and (fluid_in_all or fluid_out_all):
+        for (gx0, gx1, gy0, gy1) in group_boxes:
+            new_pipes, number, pipe_notes = block_pipes.group_pipes(
+                entities, number, machine=spec.machine, recipe_inputs=fluid_in_eff,
+                recipe_outputs=fluid_out_eff, x0=gx0, x_end=gx1, y0=gy0, y1=gy1,
+                geometry=geom, pipe=spec.pipe, pipe_ground=spec.pipe_ground, west_only=own_loader,
+                inward_outputs=not center_supply, soft=spec.pole, center_trunks_ok=center_extra > 0,
+                split_outputs=split_outputs,
+                exclude_box=gap_left["gap"]["box"] if gap_pairs else None, gap_key=gap_key if gap_pairs else None,
+                extra_ports=[(side, key, tile) for box, side, key, tile in gap_extra
+                             if box == (gx0, gx1, gy0, gy1)])
+            entities.extend(new_pipes)
+            sandwich_notes.extend(pipe_notes)
+            # Отказ — только там, где по устройству порта трубу провести нечем и образца нет; мелкие осечки раскладки
+            # (занятый тайл, нет места под подземную пару) остаются замечаниями в описании.
+            unresolved_pipes.extend(n for n in pipe_notes if any(mark in n for mark in NO_SAMPLE_MARKS))
+            # Столб, оказавшийся на тайле новой трубы, убираем: добор питания поставит его заново рядом
+            pipe_tiles = occupied_tiles(new_pipes, geom)
+            if spec.pole and pipe_tiles:
+                gone = {tuple(bp.tiles_of(e, geom)[:2]) for e in entities if e.get("name") == spec.pole
+                        and bp.tiles_of(e, geom) and tuple(bp.tiles_of(e, geom)[:2]) in pipe_tiles}
+                if gone:
+                    entities[:] = [e for e in entities if not (
+                        e.get("name") == spec.pole and bp.tiles_of(e, geom)
+                        and tuple(bp.tiles_of(e, geom)[:2]) in gone)]
+                    placed_poles[:] = [p for p in placed_poles if p not in gone]
+        if unresolved_pipes:
+            raise UnsupportedLayout(unsupported_message(spec, unresolved_pipes))
+        if any(e.get("name") == spec.pipe_ground for e in entities):
+            sandwich_notes.append(
+                "подземные трубы проведены от внешних портов жидкости к стволам по краям групп: "
+                "осталось подвести жидкость к одному месту ствола")
+
+    # Сквозное топливо (стекольный завод, реактор): заводы одного столбца вплотную передают его друг другу, поэтому
+    # трубы нужны только у торцов столбца — туда игрок и подводит топливо.
+    if spec.pipes and energy_passthrough(spec.machine, geom):
+        taken_tiles = occupied_tiles([e for e in entities if e.get("name") != spec.pole], geom)
+        for (gx0, gx1, gy0, gy1) in group_boxes:
+            columns: dict = {}
+            for e in entities:
+                tile_box = bp.tiles_of(e, geom) if e.get("name") == spec.machine else None
+                if tile_box and gx0 <= tile_box[0] < gx1 and gy0 <= tile_box[1] < gy1:
+                    columns.setdefault(tile_box[0], []).append(e)
+            for column in columns.values():
+                column.sort(key=lambda e: bp.tiles_of(e, geom)[1])
+                for end, machine_ent in (("top", column[0]), ("bottom", column[-1])):
+                    box = bp.tiles_of(machine_ent, geom)
+                    for conn in bp.fluid_connections(machine_ent, geom):
+                        if not conn.get("energy"):
+                            continue
+                        tile = conn["approach_tile"]
+                        if (tile[1] < box[1]) if end == "top" else (tile[1] >= box[1] + box[3]):
+                            if tile in taken_tiles:
+                                sandwich_notes.append(
+                                    f"топливо: тайл {tile} у торца столбца занят — подведи топливо к заводу сам")
+                                continue
+                            entities[:] = [x for x in entities if not (
+                                x.get("name") == spec.pole and bp.tiles_of(x, geom)
+                                and tuple(bp.tiles_of(x, geom)[:2]) == tuple(tile))]
+                            placed_poles[:] = [q for q in placed_poles if q != tuple(tile)]
+                            entities.append(_entity(number, spec.pipe, tile[0], tile[1], (1, 1), 0))
+                            number += 1
+                            taken_tiles.add(tuple(tile))
+        sandwich_notes.append(
+            "топливо идёт сквозь заводы одного столбца: труба поставлена у торцов столбца, подведи топливо к ней")
+
+    # Те, кого столбы по колонкам не накрыли (манипуляторы посреди стенки большого
+    # завода), добираем отдельно; прежние замечания «без питания» заменяем итоговым.
+    if spec.pole and placed_poles:
+        # Столб соседней группы мог встать на устье трубы этой (резерв группы
+        # появляется только когда до неё дошла очередь) — такие убираем.
+        stray = {p for p in placed_poles if p in ports_global}
+        if stray:
+            entities[:] = [e for e in entities if not (
+                e.get("name") == spec.pole and (bp.tiles_of(e, geom) or (None,))[0:2] and
+                tuple((bp.tiles_of(e, geom) or (0, 0))[:2]) in stray)]
+            placed_poles[:] = [p for p in placed_poles if p not in stray]
+        repaired, still = repair_pole_coverage(
+            entities, spec.pole, geom, occupied_tiles(entities, geom, reserved_all), placed_poles)
+        for (px, py) in repaired:
+            entities.append(_entity(number, spec.pole, px, py, (1, 1), 0))
+            number += 1
+        placed_poles.extend(repaired)
+        sandwich_notes[:] = [n for n in sandwich_notes if not n.startswith("без питания осталось построек")]
+        if still:
+            sandwich_notes.append(f"без питания осталось построек: {still} — поставь столбы вручную")
 
     # Сеть столбов должна быть ОДНОЙ. Колонки считаются по группам, поэтому у
     # блока из нескольких групп (или рядов) цепи оказывались не связанными: между
@@ -2088,8 +2656,7 @@ def stage_solid_inputs(recipe: str | None, machines: int, dataset_id: str | None
         return {}
     import json as _json
 
-    with path.open(encoding="utf-8") as f:
-        data = _json.load(f)
+    data = _dataset(path)
     rec = (data.get("recipes") or {}).get(recipe) or {}
     out = {}
     for ing in rec.get("ingredients") or []:
@@ -2106,8 +2673,7 @@ def dataset_items(dataset_id: str | None = None) -> dict:
         return {}
     import json as _json
 
-    with path.open(encoding="utf-8") as f:
-        data = _json.load(f)
+    data = _dataset(path)
     return data.get("items") or {}
 
 

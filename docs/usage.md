@@ -14,7 +14,13 @@
    ones are suggested. Enter speed and stack size if the dump doesn't know them. The calculator then tells how many
    of them each machine needs.
 7. **Blueprints**: the layout of a block as a blueprint string you can paste in the game (needs geometry from a
-   dump).
+   dump). With the *pipes* checkbox the generator also lays pipes (and underground pipes) from the machines to the
+   fluid inputs and outputs of the block, and turns machines whose fuel is a fluid so that the fuel port faces a pipe.
+   The layouts are learned from hand-built templates, so for a machine/recipe that has no template yet the
+   generator does not guess: it says *"no pipe layout sample"* and asks to clear the *pipes* checkbox (the block is
+   then built without pipes and the fluid hookups are left to you, with notes). The *Layout diagram* shows the
+   result before you copy it. **Make a new dump** (`dump_full.bat`) once after updating: the fuel input of machines
+   with fluid fuel is read from the geometry.
 8. **Request chest for the chain**: the *Request chest: what the chain needs* button in the results collects the
    building materials of all stages (machines, belts, inserters, poles, modules, beacons) into one requester chest
    and copies its blueprint string to the clipboard; paste it in the game and build the chest.

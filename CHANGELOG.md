@@ -6,6 +6,8 @@ All notable changes are listed here, newest first. Format: version — date.
 
 ## Unreleased
 
+- Blueprints: the generator now lays pipes and underground pipes for fluid inputs and outputs, supports machines with fluid fuel (turned so the fuel port faces a pipe), several layouts learned from hand-built templates (casting with a loader, acetylene, bitumen, creosote, glassworks, distillator, mirrored pairs with a one-tile gap) and a preview of the layout. A recipe whose machine has no layout sample yet is refused with "no pipe layout sample" instead of a guess; clear the *pipes* checkbox to get the block without pipes. **Make a new dump** after updating: the fuel input of fluid-fuel machines is read from the geometry.
+- Dropdowns (machines, fuel, beacons, stages, saved chains) show icons; ash from burnt fuel gets its own output belt.
 - Documented the game version the dump was checked with: Factorio 2.0.77 (Pyanodon set, mod versions in the README).
 - Recipe groups: a byproduct that a tab further down the chain returns (for example the rejects of a hydrocyclone that eats the group's item) now goes entirely to the group member that recycles it, rounded up to whole machines; the other members cover the rest. The loop is searched along the whole chain towards the head tab.
 - Feed lines show the stage total next to the per-group rate when there are several feed groups.

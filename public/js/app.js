@@ -1960,8 +1960,139 @@
     const ds = state.dataset;
     if (!ds) return true;
     if (!datasetKnowsUnlocked(ds)) return false;
+    return itemResearchedInSave(name);
+  }
+
+  /** Изучен ли предмет в сохранении: есть изученный рецепт, который его делает, а
+   *  предмет вообще без рецепта считаем доступным. Только для дампа из сохранения. */
+  function itemResearchedInSave(name) {
+    const ds = state.dataset;
+    if (!ds) return true;
     const { made, open } = unlockedProductNames(ds);
     return open.has(name) || !made.has(name);
+  }
+
+  // ---- тип трубы для блюпринтов (Настройки) ---------------------------------------
+  // Виды труб знает геометрия (сервер: /api/pipe_types), а название и иконку берём у
+  // предмета из дампа. В дампе из сохранения в списке только изученные, в полном — все.
+
+  const PIPE_TYPE_KEY = "chaincalc_pipe_type";
+
+  /** Виды труб, из которых можно выбирать, для текущего дампа. */
+  function pipeOptions() {
+    const types = state.pipeTypes || [];
+    const ds = state.dataset;
+    const knows = !!ds && datasetKnowsUnlocked(ds);
+    const items = (ds && ds.items) || {};
+    return types
+      .map((t) => {
+        const item = items[t.name] || {};
+        return {
+          ...t,
+          label: item.display_name || prettify(t.name),
+          icon: item.icon_url || null,
+          available: !knows || itemResearchedInSave(t.name),
+        };
+      })
+      .filter((t) => t.available);
+  }
+
+  /** Выбранная труба: сохранённый выбор, если он есть в списке, иначе прямая труба,
+   *  иначе первая доступная. null — видов труб нет (сервер сам возьмёт обычную). */
+  function selectedPipe() {
+    const options = pipeOptions();
+    if (!options.length) return null;
+    let stored = state.pipeType;
+    if (stored === undefined) {
+      try {
+        stored = localStorage.getItem(PIPE_TYPE_KEY);
+      } catch (e) {
+        stored = null;
+      }
+      state.pipeType = stored;
+    }
+    const found = options.find((o) => o.name === stored) || options.find((o) => o.name === "pipe") || options[0];
+    return found;
+  }
+
+  function setPipeType(name) {
+    state.pipeType = name;
+    try {
+      localStorage.setItem(PIPE_TYPE_KEY, name);
+    } catch (e) {
+      /* не запомнится между сессиями — не страшно */
+    }
+  }
+
+  async function ensurePipeTypes() {
+    if (state.pipeTypes || state.pipeTypesLoading) return;
+    state.pipeTypesLoading = true;
+    try {
+      const response = await apiFetch("/api/pipe_types");
+      const data = await response.json().catch(() => null);
+      state.pipeTypes = response.ok && data && Array.isArray(data.pipes) ? data.pipes : [];
+      state.pipeTypesError = response.ok ? "" : (data && data.error) || `сервер ответил ${response.status}`;
+    } catch (e) {
+      state.pipeTypes = [];
+      state.pipeTypesError = `ошибка запроса: ${e}`;
+    }
+    state.pipeTypesLoading = false;
+    renderPipeSetting();
+  }
+
+  function pipeOptionHTML(option, current) {
+    return (
+      `<button type="button" role="option" class="pipePickOption${option.name === current ? " active" : ""}" ` +
+      `data-pipe="${option.name}" aria-selected="${option.name === current}">` +
+      `${iconImg(option.icon, 22)}<span>${option.label}</span></button>`
+    );
+  }
+
+  function renderPipeSetting() {
+    const btn = document.getElementById("pipePickBtn");
+    const list = document.getElementById("pipePickList");
+    const hint = document.getElementById("pipePickHint");
+    if (!btn || !list) return;
+    if (!state.pipeTypes) {
+      btn.innerHTML = "…";
+      ensurePipeTypes();
+      return;
+    }
+    const options = pipeOptions();
+    const current = selectedPipe();
+    if (!options.length) {
+      btn.innerHTML = "—";
+      btn.disabled = true;
+      list.innerHTML = "";
+      if (hint) {
+        hint.textContent = state.pipeTypesError
+          ? `— ${state.pipeTypesError}`
+          : state.dataset
+          ? "— в дампе нет изученных труб"
+          : "— датасет не загружен";
+      }
+      return;
+    }
+    btn.disabled = false;
+    btn.innerHTML = `${iconImg(current.icon, 22)}<span>${current.label}</span><span class="pipePickCaret">▾</span>`;
+    list.innerHTML = options.map((o) => pipeOptionHTML(o, current.name)).join("");
+    if (hint) {
+      hint.textContent =
+        state.dataset && datasetKnowsUnlocked(state.dataset)
+          ? "— только изученные"
+          : state.dataset
+          ? "— все виды (полный дамп не знает, что изучено)"
+          : "";
+    }
+  }
+
+  function togglePipeList(open) {
+    const list = document.getElementById("pipePickList");
+    const btn = document.getElementById("pipePickBtn");
+    if (!list || !btn) return;
+    const show = open === undefined ? list.classList.contains("hidden") : !!open;
+    list.classList.toggle("hidden", !show);
+    btn.setAttribute("aria-expanded", String(show));
   }
 
   function setInserterEnabled(name, enabled) {
@@ -2466,6 +2597,7 @@
   /** Что показать рядом с настройкой: про полный дамп пишем, про дамп из сейва — нет. */
   function renderSettings() {
     renderAccount(state.account);       // блок «Кабинет» на этой же вкладке
+    renderPipeSetting();
     const hintsBox = document.getElementById("settingsHideHints");
     if (hintsBox) hintsBox.checked = !!state.hideHints;
     const box = document.getElementById("settingsOnlyUnlocked");
@@ -5846,6 +5978,28 @@
     return !!(rec && rec.drops_to_belt);
   }
 
+  /** Справляется ли самовыгрузка: завод с автовыгрузкой, которому за один проход получается столько, что это
+   *  целая лента (выгрузка на завод не меньше скорости ленты: 15/с на жёлтой, 60 за 4 с — те же 15), сам на ленту
+   *  не успевает. Тогда на тайле выгрузки стоит погрузчик, подходящий по скорости, и каждый завод выгружает
+   *  на свою ленту. */
+  function selfDumpNeedsLoader(n) {
+    if (!n || !machineDropsToBelt(n.machineName)) return false;
+    const machines = n.machines > 0 ? n.machines : 1;
+    let rate = 0;
+    for (const [k, v] of Object.entries(combinedOutputItems(n) || {})) {
+      if (k.startsWith("item:") && v > 0) rate += v / machines;
+    }
+    const belt = (state.belt && state.belt.speed) || 15;
+    return rate >= belt - 1e-9;
+  }
+
+  /** Самый медленный погрузчик, которого хватает на поток (иначе самый быстрый). */
+  function defaultLoaderFor(rate) {
+    const loaders = buildDeviceCatalog().filter((d) => d.loader).sort((a, b) => a.throughput - b.throughput);
+    if (!loaders.length) return null;
+    return loaders.find((d) => d.throughput + 1e-9 >= rate) || loaders[loaders.length - 1];
+  }
+
   /** Потоки, которые физически приходят/уходят у ОДНОГО завода (см. шапку раздела).
    *  Каждый поток — это { id, keys, rates, rate }: лента (или выходной
    *  инвентарь), ресурсы на ней и их сумма на один завод. id группы не зависит
@@ -5895,7 +6049,7 @@
     // Py-экстракторы вроде экстрактора грунта, литейные аппараты): у них
     // манипулятора на выход нет вовсе, и советовать его нельзя. Признак едет
     // вместе с датасетом (drops_to_belt из файла геометрии).
-    if (machineDropsToBelt(n && n.machineName)) return [];
+    if (machineDropsToBelt(n && n.machineName) && !selfDumpNeedsLoader(n)) return [];
     const perMachine = Object.entries(combinedOutputItems(n) || {})
       .filter(([k, v]) => k.startsWith("item:") && v > 0)
       .map(([k, v]) => [k, v / machines]);
@@ -5990,6 +6144,10 @@
     const chosen = stored ? inserterByName(stored) : null;
     const rate = isStream ? stream.rate : (stream || []).reduce((s, it) => s + it.rate, 0);
     const allowFuel = !!(node && machineRunsOnFuel(node.machineName));
+    if (!chosen && side === "out") {
+      const result = state.lastResult && state.lastResult.nodes && state.lastResult.nodes[nodeId];
+      if (selfDumpNeedsLoader(result)) return defaultLoaderFor(rate) || defaultInserterFor([{ rate }], { allowFuel });
+    }
     return chosen || defaultInserterFor([{ rate }], { allowFuel });
   }
 
@@ -6051,8 +6209,10 @@
     const count = streamInserterCount(stream, chosen.throughput);
     // Топливным постройкам механический манипулятор подходит, и он дешевле —
     // поэтому и в подсказке «что поставить» он участвует.
-    const auto = defaultInserterFor([{ rate: stream.rate }],
-      { allowFuel: machineRunsOnFuel(node && node.machineName) });
+    const result = state.lastResult && state.lastResult.nodes && state.lastResult.nodes[nodeId];
+    const auto = side === "out" && selfDumpNeedsLoader(result)
+      ? defaultLoaderFor(stream.rate)
+      : defaultInserterFor([{ rate: stream.rate }], { allowFuel: machineRunsOnFuel(node && node.machineName) });
     const inserters = devices.filter((d) => !d.loader);
     const loaders = devices.filter((d) => d.loader);
     const names = stream.keys.map((k) => keyDisplayName(state.dataset, k));
@@ -6699,7 +6859,9 @@
     // топливо всё-таки возят лентой, поэтому число лент здесь не навязываем.
     const solids = Object.keys(stageSolidInputs(n, root) || {});
     const machinesCeil = Math.max(1, Math.ceil((n.machines || 1) - 1e-9));
-    const sizes = (plan && plan.groupSizes) || null;
+    // Группы нулевого размера («1 + 4 × 0 заводов») в чертёж не идут: их нет, а число
+    // рядов должно сходиться с числом настоящих групп.
+    const sizes = plan && plan.groupSizes ? plan.groupSizes.filter((v) => v > 0) : null;
     if (!solids.length && (!sizes || !sizes.length)) {
       return { groups: [], total: machinesCeil, belts: 0,
                summary: "ленты подачи не нужны: у рецепта только жидкости" };
@@ -6969,11 +7131,14 @@
         insIn ? `, вход ${name(insIn)}` : ""
       }${insOut && insOut !== insIn ? `, выход ${name(insOut)}` : ""}${
         pole ? `, столбы ${pole.display_name || prettify(pole.name)} (только если кому-то нужно электричество)` : ""
-      }. Трубы не ставлю — тайлы под газ и жидкость останутся свободными.</div>` +
+      }. Тайлы под газ и жидкость остаются свободными${
+        blueprintPipes() ? ", кроме внешних портов: к ним ставятся подземные трубы" : ", трубы не ставятся"
+      }.</div>` +
       (groups && groups.groups && groups.groups.length
         ? bpRowsHTML(nodeId, groups)
         : `<div class="hint">Делить на группы нечего: лент подачи у этапа нет — блок собирается целиком, рядами его не режут. Кнопка ниже работает.</div>`) +
       beltSidesPickHTML(nodeId) +
+      `<div class="bpPanelRow">${bpPipesPickHTML()}</div>` +
       `<div class="bpPanelRow"><button type="button" class="btn bpBuildBtn" data-node="${nodeId}">Собрать блюпринт</button></div>` +
       `<div class="bpResult"></div>` +
       `</div>`
@@ -7056,12 +7221,44 @@
       pole: pole ? pole.name : null,
       // Куда едет лента выгрузки относительно подачи — выбор в блоке «Блюпринт блока».
       beltSides: blueprintBeltSides(),
+      pipes: blueprintPipes(),
+      pipe: (selectedPipe() || {}).name || null,
       // Сколько групп в каждом ряду блока (панель «Блюпринт блока»); сумму проверяют панель и сервер.
       rowGroups: bpRowsFor(nodeId, groups ? groups.groups.length : 0),
       label: `${recipe ? recipeDisplayName(recipe) : node.recipeName} × ${count}`,
       // Маяков в чертеже нет: они считаются в подсчёте заводов (эффект) и в сундуке запроса
       // (сколько купить).
     };
+  }
+
+  /** Подземные трубы от портов жидкости, смотрящих наружу блока (по умолчанию да). */
+  function blueprintPipes() {
+    if (state.bpPipes === undefined) {
+      let stored = null;
+      try {
+        stored = localStorage.getItem("chaincalc_bp_pipes");
+      } catch (e) {
+        stored = null;
+      }
+      state.bpPipes = stored !== "0";
+    }
+    return !!state.bpPipes;
+  }
+
+  function setBlueprintPipes(flag) {
+    state.bpPipes = !!flag;
+    try {
+      localStorage.setItem("chaincalc_bp_pipes", flag ? "1" : "0");
+    } catch (e) {
+      /* не запомнится между сессиями — не страшно */
+    }
+  }
+
+  function bpPipesPickHTML() {
+    return (
+      `<label class="bpPipesPick" title="У порта жидкости, который смотрит наружу блока, ставится подземная труба, за лентами — вторая, а от неё ствол из труб вдоль края группы. Порты внутрь блока остаются свободными.">` +
+      `<input type="checkbox" class="bpPipesBox"${blueprintPipes() ? " checked" : ""} /> подземные трубы от внешних портов жидкости</label>`
+    );
   }
 
   /** Настройка «выход в ту же сторону, что подача» / «в другую сторону». */
@@ -7072,6 +7269,143 @@
   function setBeltSides(value) {
     state.beltSides = value === "opposite" ? "opposite" : "same";
     state.dirty = true;
+  }
+
+  // ---- картинка раскладки ----------------------------------------------------
+  // Сервер присылает `preview` (blueprint.preview_data): по записи на постройку
+  // [вид, лево, верх, ширина, высота, куда, имя, рецепт]. Рисуем её SVG-ом в
+  // координатах тайлов: масштаб меняется шириной картинки, а не перерисовкой.
+
+  const PREVIEW_KIND_LABELS = {
+    machine: "завод",
+    belt: "лента",
+    underground: "подземная лента",
+    splitter: "разветвитель",
+    loader: "погрузчик",
+    inserter: "манипулятор",
+    pipe: "труба",
+    "pipe-ground": "подземная труба",
+    rail: "рельсы",
+    stop: "стоп",
+    warehouse: "склад",
+    pole: "столб",
+    other: "прочее",
+  };
+  // порядок отрисовки: нижнее — первым, столбы поверх всего
+  const PREVIEW_ORDER = ["rail", "machine", "warehouse", "other", "pipe", "pipe-ground", "belt", "underground", "splitter", "loader", "inserter", "stop", "pole"];
+
+  function previewEscape(text) {
+    return String(text == null ? "" : text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  /** Стрелка вдоль потока в тайле (left, top): остриё вперёд, основание сзади. */
+  function previewArrow(left, top, flow, cls, title) {
+    const cx = left + 0.5;
+    const cy = top + 0.5;
+    const fx = flow[0];
+    const fy = flow[1];
+    const px = -fy;
+    const py = fx;
+    const pts = [
+      [cx + fx * 0.42, cy + fy * 0.42],
+      [cx - fx * 0.3 + px * 0.3, cy - fy * 0.3 + py * 0.3],
+      [cx - fx * 0.3 - px * 0.3, cy - fy * 0.3 - py * 0.3],
+    ];
+    return `<polygon class="${cls}" points="${pts.map((p) => `${+p[0].toFixed(2)},${+p[1].toFixed(2)}`).join(" ")}"><title>${title}</title></polygon>`;
+  }
+
+  /** SVG раскладки: {svg, width, height} в тайлах, либо null, если рисовать нечего. */
+  function blueprintPreviewSVG(preview, reservedTiles, portTiles) {
+    if (!preview || !Array.isArray(preview.items) || !preview.items.length) return null;
+    const reserved = (reservedTiles || []).filter((t) => Array.isArray(t) && t.length >= 2);
+    const ports = (portTiles || []).filter((t) => Array.isArray(t) && t.length >= 2);
+    let minX = preview.x0;
+    let minY = preview.y0;
+    let maxX = preview.x0 + preview.width;
+    let maxY = preview.y0 + preview.height;
+    for (const t of reserved.concat(ports)) {
+      minX = Math.min(minX, t[0]);
+      minY = Math.min(minY, t[1]);
+      maxX = Math.max(maxX, t[0] + 1);
+      maxY = Math.max(maxY, t[1] + 1);
+    }
+    const pad = 1;
+    const x0 = minX - pad;
+    const y0 = minY - pad;
+    const width = maxX - minX + 2 * pad;
+    const height = maxY - minY + 2 * pad;
+    const out = [];
+    for (const t of reserved) {
+      out.push(`<rect class="pv-reserved" x="${t[0]}" y="${t[1]}" width="1" height="1"><title>${i18nText("тайл под газ/жидкость — свободен, трубу ведёт игрок")}</title></rect>`);
+    }
+    for (const t of ports) {
+      out.push(`<rect class="pv-port" x="${t[0]}" y="${t[1]}" width="1" height="1"><title>${i18nText("порт жидкости")}</title></rect>`);
+    }
+    const kindsSeen = new Set();
+    const sorted = preview.items
+      .slice()
+      .sort((a, b) => PREVIEW_ORDER.indexOf(a[0]) - PREVIEW_ORDER.indexOf(b[0]));
+    for (const [kind, left, top, w, h, flow, name, recipe] of sorted) {
+      kindsSeen.add(kind);
+      const label = PREVIEW_KIND_LABELS[kind] || kind;
+      const title = previewEscape(`${i18nText(label)}: ${name}${recipe ? ` · ${recipe}` : ""}`);
+      const cls = `pv-${kind}`;
+      if (kind === "belt" || kind === "inserter" || kind === "loader") {
+        if (kind !== "belt") out.push(`<rect class="${cls}-bg" x="${left + 0.1}" y="${top + 0.1}" width="0.8" height="0.8" rx="0.15"><title>${title}</title></rect>`);
+        else out.push(`<rect class="pv-belt-bg" x="${left}" y="${top}" width="1" height="1"><title>${title}</title></rect>`);
+        if (flow) out.push(previewArrow(left, top, flow, `${cls}-arrow`, title));
+        continue;
+      }
+      if (kind === "pole") {
+        out.push(`<circle class="${cls}" cx="${left + w / 2}" cy="${top + h / 2}" r="0.38"><title>${title}</title></circle>`);
+        continue;
+      }
+      out.push(`<rect class="${cls}" x="${left + 0.04}" y="${top + 0.04}" width="${w - 0.08}" height="${h - 0.08}" rx="0.12"><title>${title}</title></rect>`);
+      if (flow && (kind === "underground" || kind === "splitter" || kind === "pipe-ground")) {
+        out.push(previewArrow(left + (w - 1) / 2, top + (h - 1) / 2, flow, `${cls}-arrow`, title));
+      }
+    }
+    const svg =
+      `<svg class="bpPreviewSvg" xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${width} ${height}" ` +
+      `data-w="${width}" data-h="${height}" role="img" aria-label="${i18nText("Схема раскладки")}">${out.join("")}</svg>`;
+    return { svg, width, height, kinds: [...kindsSeen] };
+  }
+
+  /** Блок «Схема раскладки»: картинка с прокруткой, кнопками масштаба и легендой. */
+  function blueprintPreviewHTML(data) {
+    const picture = blueprintPreviewSVG(data && data.preview, data && data.reservedTiles, data && data.portTiles);
+    if (!picture) return "";
+    const cell = Math.max(6, Math.min(18, Math.floor(900 / picture.width)));
+    const legend = PREVIEW_ORDER.filter((k) => picture.kinds.includes(k))
+      .map((k) => `<span class="pvLegendItem"><i class="pvSwatch pv-${k}-sw"></i>${i18nText(PREVIEW_KIND_LABELS[k])}</span>`)
+      .join("");
+    const reservedLegend = (data.reservedTiles || []).length
+      ? `<span class="pvLegendItem"><i class="pvSwatch pv-reserved-sw"></i>${i18nText("тайлы под трубы")}</span>`
+      : "";
+    return (
+      `<details class="bpDetails bpPreview" open>` +
+      `<summary>Схема раскладки <span class="hint">(${picture.width - 2} × ${picture.height - 2} тайлов)</span></summary>` +
+      `<div class="bpPreviewTools"><button type="button" class="btn btn-ghost btn-small bpZoomBtn" data-dir="-1" title="Мельче">−</button>` +
+      `<button type="button" class="btn btn-ghost btn-small bpZoomBtn" data-dir="1" title="Крупнее">+</button>` +
+      `<span class="pvLegend">${legend}${reservedLegend}</span></div>` +
+      `<div class="bpPreviewScroll" data-cell="${cell}">${picture.svg.replace(
+        "<svg ",
+        `<svg style="width:${picture.width * cell}px;height:${picture.height * cell}px" `
+      )}</div>` +
+      `</details>`
+    );
+  }
+
+  /** Масштаб схемы: шаг ±25%, от 4 до 40 пикселей на тайл. */
+  function zoomBlueprintPreview(button) {
+    const scroll = button.closest(".bpPreview") && button.closest(".bpPreview").querySelector(".bpPreviewScroll");
+    const svg = scroll && scroll.querySelector("svg");
+    if (!svg) return;
+    const dir = Number(button.dataset.dir) > 0 ? 1 : -1;
+    const cell = Math.max(4, Math.min(40, (Number(scroll.dataset.cell) || 10) * (dir > 0 ? 1.25 : 0.8)));
+    scroll.dataset.cell = String(cell);
+    svg.style.width = `${+(Number(svg.dataset.w) * cell).toFixed(1)}px`;
+    svg.style.height = `${+(Number(svg.dataset.h) * cell).toFixed(1)}px`;
   }
 
   /** Что показать после сборки: строка, кнопка копирования, замечания, разбор.
@@ -7096,9 +7430,11 @@
     const fluidNote = hasFluids
       ? `<div class="hint">Газ и жидкость: вход ${
           (fluids.inputs || []).join(", ") || "—"
-        }, выход ${(fluids.outputs || []).join(", ") || "—"}. Трубы не ставились — тайлы под них свободны: ${
-          (data.portTiles || []).map((t) => `(${t[0]},${t[1]})`).join(" ") || "—"
-        }</div>`
+        }, выход ${(fluids.outputs || []).join(", ") || "—"}. ${
+          payload && payload.pipes
+            ? "Подземные трубы поставлены к портам, смотрящим наружу и в коридор; что не получилось — в замечаниях. Свободные тайлы под трубы:"
+            : "Трубы не ставились — тайлы под них свободны:"
+        } ${(data.portTiles || []).map((t) => `(${t[0]},${t[1]})`).join(" ") || "—"}</div>`
       : "";
     return (
       `<textarea class="bpString" readonly rows="3">${data.string}</textarea>` +
@@ -7109,6 +7445,12 @@
       fluidNote +
       craftNote +
       (warnings ? `<div class="bpWarns">${warnings}</div>` : "") +
+      ((data.notes || []).length
+        ? `<details class="bpDetails"><summary>Замечания генератора (${data.notes.length})</summary>${data.notes
+            .map((t) => `<div class="hint">${previewEscape(t)}</div>`)
+            .join("")}</details>`
+        : "") +
+      blueprintPreviewHTML(data) +
       (data.summary
         ? `<details class="bpDetails"><summary>Что именно построится</summary><pre>${data.summary}</pre></details>`
         : "")
@@ -7205,8 +7547,13 @@
     const ashKey = ashWithOutputEnabled(n) && ash ? ash.key : null;
     // Постройка сама кладёт продукт на ленту (буры, Py-экстракторы, литейные
     // аппараты): манипулятора на выход нет вовсе, и в чертёж он не ставится.
-    const selfDump = machineDropsToBelt(n && n.machineName);
-    const selfDumpNote = selfDump
+    const needsLoader = selfDumpNeedsLoader(n);
+    const selfDump = machineDropsToBelt(n && n.machineName) && !needsLoader;
+    const selfDumpNote = needsLoader
+      ? `<div class="beltGroupNote alt">Выгрузка завода — целая лента или больше: завод сам не успеет выложить всё на ` +
+        `ленту. На тайле выгрузки стоит погрузчик, подходящий по скорости, и каждый завод выгружает на свою ленту ` +
+        `(ленты тянешь сам).</div>`
+      : selfDump
       ? `<div class="beltGroupNote alt">Постройка сама кладёт продукт на ленту — манипулятор ` +
         `на выход не нужен, в чертёж он не ставится.</div>`
       : "";
@@ -11311,6 +11658,11 @@
         safeCall(() => buildBlueprintForStage(bpBuild.dataset.node));
         return;
       }
+      const bpZoom = e.target.closest(".bpZoomBtn");
+      if (bpZoom) {
+        safeCall(() => zoomBlueprintPreview(bpZoom));
+        return;
+      }
       const bpCopy = e.target.closest(".bpCopyBtn");
       if (bpCopy) {
         safeCall(() => copyBlueprintString(bpCopy));
@@ -11388,6 +11740,19 @@
     // открыто несколько (по одной на этап), поэтому слушаем по классу и
     // синхронизируем все — значение одно на всю цепочку.
     bpRowsHost.addEventListener("change", (e) => {
+      const pipesBox = e.target.closest && e.target.closest(".bpPipesBox");
+      if (pipesBox) {
+        safeCall(() => {
+          setBlueprintPipes(pipesBox.checked);
+          bpRowsHost.querySelectorAll(".bpPipesBox").forEach((other) => {
+            other.checked = blueprintPipes();
+          });
+          bpRowsHost.querySelectorAll(".bpResult").forEach((el) => {
+            el.innerHTML = ""; // собранные чертежи относились к прежней настройке
+          });
+        });
+        return;
+      }
       const sel = e.target.closest && e.target.closest(".beltSidesSelect");
       if (!sel) return;
       safeCall(() => {
@@ -11567,6 +11932,29 @@
         safeCall(() => applySettingsOnlyUnlocked(e.target.checked))
       );
     }
+
+    // Труба для блюпринтов: список открывается кнопкой и закрывается выбором или щелчком мимо.
+    document.addEventListener("click", (e) => {
+      const pipeBtn = e.target.closest && e.target.closest("#pipePickBtn");
+      if (pipeBtn) {
+        safeCall(() => togglePipeList());
+        return;
+      }
+      const pipeOption = e.target.closest && e.target.closest(".pipePickOption");
+      if (pipeOption) {
+        safeCall(() => {
+          setPipeType(pipeOption.dataset.pipe);
+          renderPipeSetting();
+          togglePipeList(false);
+          // собранные блюпринты относились к прежней трубе
+          document.querySelectorAll(".bpResult").forEach((el) => {
+            el.innerHTML = "";
+          });
+        });
+        return;
+      }
+      if (!(e.target.closest && e.target.closest("#settingsPipePick"))) safeCall(() => togglePipeList(false));
+    });
 
     const settingsHideHints = document.getElementById("settingsHideHints");
     if (settingsHideHints) {
@@ -11909,6 +12297,12 @@
     blueprintPoleList,
     inserterNumbers,
     normalizeInserterSetup,
+    blueprintPreviewSVG,
+    pipeOptions,
+    selectedPipe,
+    setPipeType,
+    renderPipeSetting,
+    blueprintPreviewHTML,
     inserterDumpHandSize,
     inserterSetupFor,
     inserterIsOff,
