@@ -494,6 +494,61 @@
     return couplings;
   }
 
+  // A LOOP THROUGH THE PARENT: the tab that eats the group's item (e.g. a hydrocyclone
+  // eating "хромит 3 сорт") spits out a byproduct ("отходы") that one of the group's
+  // members turns back into the same item. The byproduct is not made by any member, so
+  // detectGroupCoupling cannot see it - but its amount is fixed by the group's total
+  // target: perUnit = byproduct made per unit of the group's item the parent eats.
+  // Returns [{ item, perUnit, consumer: profile }].
+  async function detectParentLoops(groupId, profiles) {
+    const group = tabGroups[groupId];
+    const memberIds = new Set(profiles.map((p) => p.id));
+    const link = calcTabs
+      .filter((t) => t.groupId === groupId)
+      .map((t) => t.parentInfo)
+      .find((pi) => pi && pi.itemKey === group.itemKey && !memberIds.has(pi.tabId));
+    if (!link) return [];
+    const root = (getTabCascade(link.tabId) || {}).root;
+    const pp = await probeMemberProfile(root);
+    if (!pp) return [];
+    const eats = -(pp.net[group.itemKey] || 0);
+    if (!(eats > 1e-12)) return [];
+    const loops = [];
+    for (const [item, made] of Object.entries(pp.net)) {
+      if (item === group.itemKey || made <= 1e-12) continue;
+      const consumer = profiles.find((p) => (p.net[item] || 0) < -1e-12);
+      if (consumer) loops.push({ item, perUnit: made / eats, consumer });
+    }
+    return loops;
+  }
+
+  // Size a group with parent loops: every byproduct the parent returns goes to the member
+  // that recycles it (whole machines, rounded UP so nothing is left unprocessed); the
+  // remaining need is split among the other members. Returns { counts, links } or null
+  // when no member is left for the remaining need.
+  function sizeParentLoops(profiles, loops, targetF) {
+    const counts = {};
+    const links = [];
+    let covered = 0;
+    for (const lp of loops) {
+      const c = lp.consumer;
+      if (counts[c.id] != null) continue;
+      const wantPerMachine = -c.net[lp.item];
+      const madeSec = lp.perUnit * targetF;
+      counts[c.id] = Math.max(1, Math.ceil(madeSec / wantPerMachine - 1e-9));
+      covered += counts[c.id] * c.primaryRate;
+      links.push({ item: lp.item, consumerId: c.id, madeSec, usedSec: Math.min(madeSec, counts[c.id] * wantPerMachine) });
+    }
+    const rest = profiles.filter((p) => counts[p.id] == null);
+    if (!rest.length || !links.length) return null;
+    const alloc = allocateIntegerMachines(
+      rest.map((p) => ({ id: p.id, rate: p.primaryRate })),
+      Math.max(0, targetF - covered)
+    );
+    for (const p of rest) counts[p.id] = Math.max(1, alloc[p.id] || 0);
+    return { counts, links };
+  }
+
   // Arrange coupled members into a single dependency CHAIN and return them in
   // order: [main, secondary1, secondary2, ...]. The main makes the group item
   // from a raw input; each secondary makes the same item from the byproduct of
@@ -707,6 +762,7 @@
     const couplings = detectGroupCoupling(profiles, group.itemKey);
     let machineAlloc = null;
     group.coupling = null;
+    group.parentLoop = null;
 
     // Try to line the members up as a single dependency chain: main -> recycler
     // of its byproduct -> recycler of THAT byproduct -> ...
@@ -740,10 +796,17 @@
       }
       group.coupling = { mainId: chain[0].id, order: chain.map((l) => l.id), links };
     } else {
-      // No internal dependency (truly independent recipes) or a tangled shape
-      // that isn't a single clean chain: split evenly by machine count.
-      const rates = profiles.map((p) => ({ id: p.id, rate: p.primaryRate }));
-      machineAlloc = allocateIntegerMachines(rates, newTargetSec);
+      const sized = sizeParentLoops(profiles, await detectParentLoops(groupId, profiles), newTargetSec);
+      if (sized) {
+        machineAlloc = sized.counts;
+        group.coupling = null;
+        group.parentLoop = sized.links;
+      } else {
+        // No internal dependency (truly independent recipes) or a tangled shape
+        // that isn't a single clean chain: split evenly by machine count.
+        const rates = profiles.map((p) => ({ id: p.id, rate: p.primaryRate }));
+        machineAlloc = allocateIntegerMachines(rates, newTargetSec);
+      }
     }
 
     const result = {};
@@ -871,6 +934,17 @@
         })
         .join("");
       couplingLine = `<div class="summaryLine"><span>Порядок цепочки</span><span>${orderNames}</span></div>${linkLines}`;
+    }
+
+    if (group.parentLoop && group.parentLoop.length) {
+      couplingLine = group.parentLoop
+        .map((lk) => {
+          const note = lk.usedSec < lk.madeSec - 1e-6 ? ` · излишек ${(lk.madeSec - lk.usedSec).toFixed(2)}/сек` : " · всё в дело";
+          return `<div class="summaryLine"><span>Возврат «${keyDisplayName(state.dataset, lk.item)}» из потребителя</span><span>${lk.madeSec.toFixed(
+            2
+          )}/сек → ${memberName(lk.consumerId)}${note}</span></div>`;
+        })
+        .join("");
     }
 
     // A group always runs at least ONE machine per member recipe, so it has a
@@ -7144,6 +7218,12 @@
     return i.shared ? i.lanePct >= 99.5 : i.beltPct >= 99.5;
   }
 
+  // «21.00/сек на группу» при двух группах — это половина потребности; рядом пишем и общую сумму по этапу.
+  function feedTotalHintHTML(i, plan) {
+    if (!plan || !(plan.numGroups > 1) || !(i.rate > 0)) return "";
+    return ` <span class="hint">(всего ${i.rate.toFixed(2)}/сек)</span>`;
+  }
+
   // A resource that gets a belt to itself.
   function feedSoloLineHTML(key, plan, nodeId) {
     const i = plan.info[key];
@@ -7153,7 +7233,7 @@
         i.beltsPerMachine
       )}</b> — он потребляет больше, чем несёт целая лента (${plan.beltSpeed.toFixed(2)}/сек)${btn}</li>`;
     }
-    return `<li>${feedResourceLabel(key, plan)}: <b>${i.perGroup.toFixed(2)}/сек</b> на группу → <b>1 лента</b> целиком ${beltFillBarHTML(
+    return `<li>${feedResourceLabel(key, plan)}: <b>${i.perGroup.toFixed(2)}/сек</b> на группу${feedTotalHintHTML(i, plan)} → <b>1 лента</b> целиком ${beltFillBarHTML(
       i.beltPct
     )} <span class="hint">(одна лента несёт ${plan.beltSpeed.toFixed(2)}/сек — это ${machinesPerBeltText(i.machinesPerBelt)})</span>${
       throttleHintHTML(i, plan)
@@ -7181,7 +7261,7 @@
       .map((key) => {
         const i = plan.info[key];
         const btn = feedLineAlreadyFull(key, plan) ? "" : ` ${fullBeltResourceLineButtonHTML(nodeId, key, true)}`;
-        return `<li>${feedResourceLabel(key, plan)}: <b>${i.perGroup.toFixed(2)}/сек</b> на группу → своя сторона ${beltFillBarHTML(
+        return `<li>${feedResourceLabel(key, plan)}: <b>${i.perGroup.toFixed(2)}/сек</b> на группу${feedTotalHintHTML(i, plan)} → своя сторона ${beltFillBarHTML(
           i.lanePct
         )} <span class="hint">(сторона несёт ${plan.laneSpeed.toFixed(2)}/сек — это ${machinesPerBeltText(i.machinesPerLane)})</span>${
           throttleHintHTML(i, plan)
@@ -11845,6 +11925,7 @@
     computeGroupTotal,
     getTabCascade,
     redistributeGroup,
+    sizeParentLoops,
     groupTabs,
     ungroupTab,
     estimateGroupInitialTarget,
