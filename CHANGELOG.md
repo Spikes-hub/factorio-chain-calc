@@ -7,6 +7,9 @@ All notable changes are listed here, newest first. Format: version — date.
 ## Unreleased
 
 - Documented the game version the dump was checked with: Factorio 2.0.77 (Pyanodon set, mod versions in the README).
+- Recipe groups: a byproduct that a tab further down the chain returns (for example the rejects of a hydrocyclone that eats the group's item) now goes entirely to the group member that recycles it, rounded up to whole machines; the other members cover the rest. The loop is searched along the whole chain towards the head tab.
+- Feed lines show the stage total next to the per-group rate when there are several feed groups.
+- Recipes with the same name are told apart by their inputs ("— from: ...") in the recipe picker, tab hints and the group summary, instead of the internal id.
 
 ## 0.1.0 — 2026-10-06
 
