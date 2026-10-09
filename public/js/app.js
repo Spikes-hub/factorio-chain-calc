@@ -508,16 +508,39 @@
       .map((t) => t.parentInfo)
       .find((pi) => pi && pi.itemKey === group.itemKey && !memberIds.has(pi.tabId));
     if (!link) return [];
-    const root = (getTabCascade(link.tabId) || {}).root;
-    const pp = await probeMemberProfile(root);
-    if (!pp) return [];
-    const eats = -(pp.net[group.itemKey] || 0);
-    if (!(eats > 1e-12)) return [];
+    // Walk from the tab that eats the group's item towards the head of the chain: every tab
+    // on the way has a fixed flow per unit of the group's item, and whatever byproduct any of
+    // them makes (the hydrocyclone's rejects, a separator's leftovers further up) can come
+    // back to a member.
+    const made = {}; // item -> amount per 1 unit of the group's item
+    const seen = new Set(memberIds);
+    let tabId = link.tabId;
+    let eatenKey = group.itemKey;
+    let units = 1; // how much of eatenKey this tab must receive per 1 unit of the group's item
+    for (let depth = 0; tabId && !seen.has(tabId) && depth < 12; depth++) {
+      seen.add(tabId);
+      const root = (getTabCascade(tabId) || {}).root;
+      const pp = root ? await probeMemberProfile(root) : null;
+      if (!pp) break;
+      const eats = -(pp.net[eatenKey] || 0);
+      if (!(eats > 1e-12)) break;
+      const machines = units / eats;
+      const tab = calcTabs.find((t) => t.id === tabId);
+      const next = tab && tab.parentInfo && tab.parentInfo.tabId && tab.parentInfo.itemKey ? tab.parentInfo : null;
+      for (const [item, perMachine] of Object.entries(pp.net)) {
+        if (item === group.itemKey || item === eatenKey || (next && item === next.itemKey) || perMachine <= 1e-12) continue;
+        made[item] = (made[item] || 0) + machines * perMachine;
+      }
+      if (!next) break;
+      units = machines * (pp.net[next.itemKey] || 0); // what this tab hands on to the next one
+      if (!(units > 1e-12)) break;
+      eatenKey = next.itemKey;
+      tabId = next.tabId;
+    }
     const loops = [];
-    for (const [item, made] of Object.entries(pp.net)) {
-      if (item === group.itemKey || made <= 1e-12) continue;
+    for (const [item, perUnit] of Object.entries(made)) {
       const consumer = profiles.find((p) => (p.net[item] || 0) < -1e-12);
-      if (consumer) loops.push({ item, perUnit: made / eats, consumer });
+      if (consumer) loops.push({ item, perUnit, consumer });
     }
     return loops;
   }
@@ -894,10 +917,11 @@
     const optimized = group.optimized !== false; // undefined (freshly grouped, before first redistribute) counts as "will be"
     const coupling = group.coupling || null;
 
+    const memberRecipes = uniqueRecipes(members.map((m) => getTabCascade(m.id)));
     const memberName = (id) => {
       const cascade = getTabCascade(id);
       const recipe = cascade && cascade.root && state.dataset.recipes[cascade.root.recipeName];
-      return recipeDisplayName(recipe);
+      return recipe ? disambiguatedLabel(recipe, memberRecipes) : recipeDisplayName(recipe);
     };
 
     // Two modes. Independent recipes get an even split. A dependency chain
@@ -985,7 +1009,7 @@
               const cascade = getTabCascade(m.id);
               const recipe = cascade && cascade.root && state.dataset.recipes[cascade.root.recipeName];
               const rate = getTabTargetRateInSec(m.id);
-              return `<div class="groupMemberRow${m.id === activeTab.id ? " active" : ""}">${iconImg(recipeIconUrl(recipe), 18)}${recipeDisplayName(recipe)}: ${rate.toFixed(2)} шт/сек</div>`;
+              return `<div class="groupMemberRow${m.id === activeTab.id ? " active" : ""}">${iconImg(recipeIconUrl(recipe), 18)}${recipe ? disambiguatedLabel(recipe, memberRecipes) : recipeDisplayName(recipe)}: ${rate.toFixed(2)} шт/сек</div>`;
             })
             .join("")}
         </div>
@@ -1015,7 +1039,11 @@
       const title = root ? recipeDisplayName(state.dataset.recipes[root.recipeName]) : "";
       const div = document.createElement("div");
       div.className = "calcTab" + (idx === activeTabIndex ? " active" : "") + (tab.groupId ? " grouped" : "");
-      div.title = title + (tab.groupId ? " (в группе)" : "");
+      const sameTitle = root ? uniqueRecipes(calcTabs.map((t2) => getTabCascade(t2.id))) : [];
+      const fullTitle = root && state.dataset.recipes[root.recipeName]
+        ? disambiguatedLabel(state.dataset.recipes[root.recipeName], sameTitle)
+        : title;
+      div.title = fullTitle + (tab.groupId ? " (в группе)" : "");
       div.draggable = true;
       div.innerHTML = `${icon}<span class="calcTabClose">✕</span>`;
       div.addEventListener("click", (e) => {
@@ -1172,9 +1200,33 @@
   // dropdown.
   function disambiguatedLabel(recipe, siblings) {
     const label = recipeDisplayName(recipe);
-    const isDuplicate = siblings.filter((s) => recipeDisplayName(s) === label).length > 1;
-    if (!isDuplicate) return label;
+    const same = siblings.filter((s) => recipeDisplayName(s) === label);
+    if (same.length < 2) return label;
+    // Сначала различаем по-русски: «Хромит (3 сорт) — из: Хромитовые отходы». Внутренний id
+    // добавляется только если и состав входа у рецептов одинаковый.
+    const from = recipeFromText(recipe);
+    if (from) {
+      const sameFrom = same.filter((s) => recipeFromText(s) === from);
+      if (sameFrom.length < 2) return `${label} — из: ${from}`;
+    }
     return `${label} — ${recipe.name} (${recipe.category || "?"})`;
+  }
+
+  // Рецепты корней этих каскадов, без повторов по имени (одна и та же вкладка дважды — не «одноимённые»).
+  function uniqueRecipes(cascades) {
+    const byName = new Map();
+    for (const c of cascades) {
+      const r = c && c.root && state.dataset.recipes[c.root.recipeName];
+      if (r && !byName.has(r.name)) byName.set(r.name, r);
+    }
+    return [...byName.values()];
+  }
+
+  // «Хромитовые отходы, Вода» — названия входов рецепта (по-русски, как в датасете).
+  function recipeFromText(recipe) {
+    return asArray(recipe && recipe.ingredients)
+      .map((ing) => keyDisplayName(state.dataset, `${ing.type || "item"}:${ing.name}`))
+      .join(", ");
   }
 
   // Right-hand "what this recipe needs" strip: every ingredient (both belt

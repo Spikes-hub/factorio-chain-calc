@@ -373,6 +373,7 @@ window.__I18N_EN = {
 "отдельно": "separately",
 "группы": "groups",
 "на группу,": "per group,",
+"— из:": "— from:",
 "(всего": "(total",
 "на этап": "per stage",
 "— завод выдаёт больше целой ленты": "— the machine outputs more than a whole belt",
