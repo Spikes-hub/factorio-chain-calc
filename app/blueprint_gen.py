@@ -313,6 +313,25 @@ def energy_passthrough(machine: str | None, geometry: dict | None = None) -> tup
     return None
 
 
+def recipe_passthrough(machine: str | None, geometry: dict | None = None) -> tuple | None:
+    """Завод, у которого ЕДИНСТВЕННЫЙ вход жидкости рецепта сквозной (экстрактор грунта: вода): два противоположных
+    устья «вход-выход». Заводы одного столбца вплотную передают жидкость друг другу, поэтому труба нужна только у
+    края столбца. Возвращает (номер бокса, (направление, направление)) или None."""
+    boxes = (bp.entity_record(machine, geometry) or {}).get("fluids") if machine else None
+    if not boxes:
+        return None
+    inputs = [(i, b) for i, b in enumerate(boxes) if b.get("production") == "input" and not b.get("energy")]
+    if len(inputs) != 1:
+        return None
+    index, box = inputs[0]
+    pipes = [c for c in box.get("pipes") or [] if c.get("type") != "underground"]
+    if len(pipes) == 2 and all(c.get("flow") == "input-output" for c in pipes):
+        a, b = int(pipes[0].get("dir") or 0), int(pipes[1].get("dir") or 0)
+        if (a - b) % 16 == 8:
+            return index, (a, b)
+    return None
+
+
 def recipe_fluids(recipe: str | None, dataset_id: str | None = None, machine: str | None = None,
                   geometry: dict | None = None) -> tuple[list, list]:
     """Жидкости рецепта: (входы, выходы) по порядку записи в рецепте.
@@ -328,6 +347,8 @@ def recipe_fluids(recipe: str | None, dataset_id: str | None = None, machine: st
         outputs = [p.get("name") for p in (rec.get("products") or []) if p.get("type") == "fluid"]
     if machine_burns_fluid(machine, geometry) and not energy_passthrough(machine, geometry):
         inputs = [FUEL_FLUID] + inputs
+    elif len(inputs) == 1 and recipe_passthrough(machine, geometry):
+        inputs = []         # единственная входная жидкость идёт сквозь заводы столбца: трубы у каждого завода не нужны
     return inputs, outputs
 
 
@@ -351,6 +372,15 @@ def flipped(orientation: int) -> int:
 
 def _unmirror(orientation: int) -> tuple[int, bool]:
     return int(orientation) % MIRROR, int(orientation) >= MIRROR
+
+
+def recipe_fluids_raw(spec: "BlockSpec", geometry: dict | None = None) -> list:
+    """Входные жидкости рецепта как они записаны в рецепте (без топлива и без вычеркнутой сквозной)."""
+    path = dataset_path(spec.dataset_id)
+    if not (path and spec.recipe):
+        return []
+    rec = (_dataset(path).get("recipes") or {}).get(spec.recipe) or {}
+    return [i.get("name") for i in (rec.get("ingredients") or []) if i.get("type") == "fluid"]
 
 
 def machine_ports(machine: str, geometry: dict | None = None, direction: int = 0) -> list[dict]:
@@ -431,7 +461,7 @@ def allowed_rotations(machine: str, geometry: dict | None = None) -> tuple:
     rotations = (0, 8) if (size and size[0] != size[1]) else (0, 4, 8, 12)
     if _MIRROR_OK.get():
         rotations = rotations + tuple(r + MIRROR for r in rotations)
-    through = energy_passthrough(machine, geometry)
+    through = energy_passthrough(machine, geometry) or (recipe_passthrough(machine, geometry) or (None, None))[1]
     if through:
         # сквозное топливо должно идти вдоль столбца заводов (на север и юг), иначе соседи его не передадут
         along = tuple(r for r in rotations if (through[0] + r) % 16 in (0, 8))
@@ -2537,7 +2567,10 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
 
     # Сквозное топливо (стекольный завод, реактор): заводы одного столбца вплотную передают его друг другу, поэтому
     # трубы нужны только у торцов столбца — туда игрок и подводит топливо.
-    if spec.pipes and energy_passthrough(spec.machine, geom):
+    through_recipe = (recipe_passthrough(spec.machine, geom) if (len(recipe_fluids_raw(spec, geom)) == 1
+                                                                   and not energy_passthrough(spec.machine, geom))
+                      else None)
+    if spec.pipes and (energy_passthrough(spec.machine, geom) or through_recipe):
         taken_tiles = occupied_tiles([e for e in entities if e.get("name") != spec.pole], geom)
         for (gx0, gx1, gy0, gy1) in group_boxes:
             columns: dict = {}
@@ -2547,10 +2580,15 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
                     columns.setdefault(tile_box[0], []).append(e)
             for column in columns.values():
                 column.sort(key=lambda e: bp.tiles_of(e, geom)[1])
-                for end, machine_ent in (("top", column[0]), ("bottom", column[-1])):
+                # топливо подводят к обоим торцам, жидкость рецепта — к одному (верхнему): дальше она идёт сквозь заводы
+                ends = (("top", column[0]),) if through_recipe else (("top", column[0]), ("bottom", column[-1]))
+                for end, machine_ent in ends:
                     box = bp.tiles_of(machine_ent, geom)
                     for conn in bp.fluid_connections(machine_ent, geom):
-                        if not conn.get("energy"):
+                        if through_recipe:
+                            if conn["box"] != through_recipe[0]:
+                                continue
+                        elif not conn.get("energy"):
                             continue
                         tile = conn["approach_tile"]
                         if (tile[1] < box[1]) if end == "top" else (tile[1] >= box[1] + box[3]):
@@ -2565,8 +2603,13 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
                             entities.append(_entity(number, spec.pipe, tile[0], tile[1], (1, 1), 0))
                             number += 1
                             taken_tiles.add(tuple(tile))
-        sandwich_notes.append(
-            "топливо идёт сквозь заводы одного столбца: труба поставлена у торцов столбца, подведи топливо к ней")
+        if through_recipe:
+            sandwich_notes.append(
+                "жидкость идёт сквозь заводы одного столбца: труба поставлена у верхнего завода, подведи жидкость "
+                "к ней — дальше завод передаёт её следующему")
+        else:
+            sandwich_notes.append(
+                "топливо идёт сквозь заводы одного столбца: труба поставлена у торцов столбца, подведи топливо к ней")
 
     # Те, кого столбы по колонкам не накрыли (манипуляторы посреди стенки большого
     # завода), добираем отдельно; прежние замечания «без питания» заменяем итоговым.
