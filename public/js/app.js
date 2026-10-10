@@ -9729,24 +9729,31 @@
     return null;
   }
 
-  /** Партия за рейс. {ok, base, withReserve, reason}. oneWaySec — время в одну сторону, rate — расход в сек. */
+  /** Партия за рейс. {ok, trains, base, withReserve, reason}. oneWaySec — время в одну сторону, rate — расход в сек.
+   *
+   *  Один поезд грузится и разгружается со скоростью станции, и если блок ест быстрее, чем погрузка и разгрузка
+   *  вместе успевают, одного поезда мало. Тогда поездов столько, чтобы каждый (на своей станции) вёз долю потока:
+   *    N — наименьшее число, при котором (r/N)·(1/v_погр + 1/v_разгр) < 1,
+   *    партия одного поезда Q = (r·T_круга/N) / (1 − (r/N)·(1/v_погр + 1/v_разгр)). */
   function trainTripAmount(rate, oneWaySec, isFluid, loadSpeed, unloadSpeed) {
     const round = 2 * oneWaySec;
     if (!(rate > 0) || !(oneWaySec >= 0)) return { ok: false, reason: "нет расхода или времени" };
+    let trains = 1;
     let base;
     if (isFluid) {
       base = rate * round;
     } else {
-      const share = rate / loadSpeed + rate / unloadSpeed;
-      if (!(share < 1 - 1e-9)) {
+      const perItem = 1 / loadSpeed + 1 / unloadSpeed;
+      while (trains <= 50 && !((rate / trains) * perItem < 1 - 1e-9)) trains += 1;
+      if (trains > 50) {
         return {
           ok: false,
-          reason: `не хватает скорости погрузки/разгрузки: блок ест ${rate.toFixed(2)}/сек, а погрузка ${loadSpeed}/сек и разгрузка ${unloadSpeed}/сек вместе медленнее`,
+          reason: `не хватает скорости погрузки/разгрузки: блок ест ${rate.toFixed(2)}/сек, а погрузка ${loadSpeed}/сек и разгрузка ${unloadSpeed}/сек даже на 50 поездах не успевают`,
         };
       }
-      base = (rate * round) / (1 - share);
+      base = ((rate * round) / trains) / (1 - (rate / trains) * perItem);
     }
-    return { ok: true, base, withReserve: base * (1 + TRAIN_RESERVE), round };
+    return { ok: true, trains, base, withReserve: base * (1 + TRAIN_RESERVE), round };
   }
 
   /** Ресурсы вкладки, которые подвозит поезд: сырьё рецептов и топливо — отдельными строками. */
@@ -9773,13 +9780,17 @@
     if (!(seconds >= 0)) return { html: `<span class="hint">впиши время в пути</span>`, cls: "" };
     const trip = trainTripAmount(rate, seconds, fluid, state.trainLoad, state.trainUnload);
     if (!trip.ok) return { html: trip.reason, cls: " warn" };
-    return {
-      html: `везти за рейс: <b>${trainAmountText(trip.withReserve, fluid)}</b> <span class="hint">(${trainAmountText(
-        trip.base,
-        fluid
-      )} + ${Math.round(TRAIN_RESERVE * 100)}% запас)</span>`,
-      cls: "",
-    };
+    const reserve = `<span class="hint">(${trainAmountText(trip.base, fluid)} + ${Math.round(TRAIN_RESERVE * 100)}% запас)</span>`;
+    if (trip.trains > 1) {
+      // одного поезда мало: погрузка и разгрузка вместе медленнее расхода — нужны несколько поездов
+      return {
+        html:
+          `поездов: <b>${trip.trains}</b>, каждый везёт за рейс: <b>${trainAmountText(trip.withReserve, fluid)}</b> ${reserve}` +
+          `<br><span class="hint">один поезд не успевает погрузиться и разгрузиться; поезда грузятся на разных станциях</span>`,
+        cls: "",
+      };
+    }
+    return { html: `везти за рейс: <b>${trainAmountText(trip.withReserve, fluid)}</b> ${reserve}`, cls: "" };
   }
 
   function trainAmountText(value, fluid) {

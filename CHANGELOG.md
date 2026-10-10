@@ -4,6 +4,10 @@
 
 All notable changes are listed here, newest first. Format: version — date.
 
+## Unreleased
+
+- Train section: when the loading and unloading of one train are slower than the block eats, the number of trains is calculated (each train loads at its own station) and the amount per trip is shown for one train.
+
 ## 0.2.0 — 2026-10-10
 
 ### Major changes
