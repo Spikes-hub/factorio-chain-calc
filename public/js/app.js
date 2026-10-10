@@ -5046,6 +5046,36 @@
     return { count: sizes.length, sizes, maxGroup: arrayMax(sizes), minGroup: arrayMin(sizes) };
   }
 
+  // Разбиение на заданное число ГРУПП: блоки выхода остаются отдельными (в блоке групп не меньше одной), оставшиеся
+  // группы достаются блокам с самым большим числом заводов на группу; внутри блока заводы делятся ровно.
+  function splitByCount(blockSizes, groups) {
+    const physical = blockSizes.map((b) => Math.max(1, Math.ceil(b - 1e-9)));
+    const counts = physical.map(() => 1);
+    let left = Math.max(0, groups - counts.length);
+    while (left > 0) {
+      let best = -1;
+      let bestLoad = -1;
+      physical.forEach((m, i) => {
+        if (counts[i] >= m) return;                       // групп не больше, чем заводов в блоке
+        const load = m / counts[i];
+        if (load > bestLoad) {
+          best = i;
+          bestLoad = load;
+        }
+      });
+      if (best < 0) break;
+      counts[best] += 1;
+      left -= 1;
+    }
+    return physical.map((m, i) => {
+      const base = Math.floor(m / counts[i]);
+      const remainder = m % counts[i];
+      const sizes = [];
+      for (let k = 0; k < counts[i]; k++) sizes.push(base + (k < remainder ? 1 : 0));
+      return { count: sizes.length, sizes, maxGroup: arrayMax(sizes), minGroup: arrayMin(sizes) };
+    });
+  }
+
   function computeFeedPlan(n, root) {
     const cascadeRoot = root || (state.cascade && state.cascade.root);
     if (!n || !n.machines) return null;
@@ -5156,7 +5186,15 @@
     // it survives save/load). It caps the group instead of the automatic limit;
     // an empty field means "back to automatic".
     const treeNodeForOverride = treeNodeHere;
-    const override = treeNodeForOverride && treeNodeForOverride.feedGroupSize > 0 ? Math.floor(treeNodeForOverride.feedGroupSize) : null;
+    const sizeOverride = treeNodeForOverride && treeNodeForOverride.feedGroupSize > 0 ? Math.floor(treeNodeForOverride.feedGroupSize) : null;
+    // Число групп задают вместо размера (поля не работают вместе: ввод одного очищает другое).
+    const groupsWanted =
+      !sizeOverride && treeNodeForOverride && treeNodeForOverride.feedGroupCount > 0
+        ? Math.floor(treeNodeForOverride.feedGroupCount)
+        : null;
+    const groupsCapped = groupsWanted ? Math.min(groupsWanted, totalMachines) : null;
+    // Для проверки «накормит ли лента» нужен самый большой размер группы при таком числе групп
+    const override = sizeOverride || (groupsCapped ? Math.ceil(totalMachines / groupsCapped) : null);
 
     // With a manual size, only schemes whose belts can actually feed that many
     // machines are on the table. If the number is bigger than ANY scheme can
@@ -5182,7 +5220,11 @@
       // even split rather than inventing a skewed one.)
       for (const c of pool) {
         const size = Math.max(1, Math.min(override, maxGroupPhysical(c.cap)));
-        c.splits = blockSizes.map((b) => (overrideTooBig ? balancedSplitFlow(b, c.cap) : exactSplit(Math.max(1, Math.ceil(b - 1e-9)), size)));
+        c.splits = overrideTooBig
+          ? blockSizes.map((b) => balancedSplitFlow(b, c.cap))
+          : groupsCapped
+          ? splitByCount(blockSizes, groupsCapped)
+          : blockSizes.map((b) => exactSplit(Math.max(1, Math.ceil(b - 1e-9)), size));
         c.numGroups = c.splits.reduce((s, sp) => s + sp.count, 0);
         c.groupSizes = c.splits.flatMap((sp) => sp.sizes);
         c.maxGroup = arrayMax(c.groupSizes);
@@ -5304,7 +5346,9 @@
       inputSplit: stageSolidInputSplit(n, cascadeRoot),
       outBlockMachines: usesOutputBelt ? outPlan.blockMachines : null,
       outBlocks: usesOutputBelt ? outPlan.blocks : null,
-      override,
+      override: sizeOverride,
+      overrideGroups: groupsWanted,
+      overrideGroupsCapped: groupsCapped,
       overrideTooBig,
       alignPriority,
       // Biggest group any scheme could feed — in whole machines (see maxGroupPhysical).
@@ -5312,7 +5356,7 @@
       autoCapFlow: Math.max(...candidates.map((c) => c.cap)),
       // If the manual size left a runt group, this is the size that comes out even.
       evenSuggestion:
-        override && chosen.skew > 0
+        sizeOverride && chosen.skew > 0
           ? balancedSplitFlow(blockSizes[0], chosen.cap).maxGroup
           : null,
       runnerUp: runnerUp
@@ -5337,7 +5381,7 @@
         : p.minGroup === p.maxGroup
         ? `<b>${p.numGroups} ${pluralGroups(p.numGroups)}</b> по <b>${p.maxGroup}</b> ${pluralMachines(p.maxGroup)}`
         : `<b>${p.numGroups} ${pluralGroups(p.numGroups)}</b>: ${p.sizeSummary} ${pluralMachines(p.maxGroup)}${sizeLegend(p.sizeSummary)}`;
-    const manual = p.override ? ` <span class="sumManual">вручную</span>` : "";
+    const manual = p.override || p.overrideGroups ? ` <span class="sumManual">вручную</span>` : "";
 
     // Who rides with whom - the one thing the summary must make obvious.
     const beltRows = [];
@@ -7689,7 +7733,13 @@
       `<span class="feedSizeBox">заводов в группе: ` +
       `<input type="text" inputmode="numeric" class="feedGroupInput" data-node="${nodeId}" value="${plan.override || ""}" placeholder="${
         plan.maxGroup
-      }" title="Своё число заводов в группе — Enter пересчитает разбиение. Пустое поле + Enter — вернуть автоматическое." />` +
+      }" title="Своё число заводов в группе — Enter пересчитает разбиение. Пустое поле + Enter — вернуть автоматическое. Ввод очищает поле «групп»." />` +
+      ` или групп: ` +
+      `<input type="text" inputmode="numeric" class="feedGroupInput feedGroupCountInput" data-node="${nodeId}" value="${
+        plan.overrideGroups || ""
+      }" placeholder="${
+        plan.numGroups
+      }" title="Своё число групп — Enter поделит заводы поровну. Пустое поле + Enter — вернуть автоматическое. Ввод очищает поле «заводов в группе»." />` +
       `</span>`
     );
   }
@@ -7734,7 +7784,21 @@
       plan.evenSuggestion && plan.evenSuggestion !== plan.override
         ? ` Ровно поделится, если ввести <b>${plan.evenSuggestion}</b> — тогда группы выйдут одинаковыми.`
         : "";
-    const overrideNote = plan.overrideTooBig
+    const overrideNote = plan.overrideGroups
+      ? plan.overrideTooBig
+        ? `<div class="beltGroupNote warn">Запрошено групп: <b>${plan.overrideGroups}</b>, но лентами столько заводов в группе не накормить — максимум <b>${plan.autoCap}</b> в группе. Считаю по максимуму; очисти поле «групп» и нажми Enter, чтобы вернуть автоматическое разбиение.</div>`
+        : `<div class="beltGroupNote alt">Число групп задано вручную: <b>${plan.overrideGroups}</b> → <b>${
+            plan.sizeSummary
+          }</b>${sizeLegend(plan.sizeSummary)}.${
+            plan.numGroups !== plan.overrideGroups
+              ? ` Получилось <b>${plan.numGroups}</b> ${pluralGroups(plan.numGroups)}: ${
+                  plan.overrideGroups > plan.totalMachines
+                    ? `больше групп, чем заводов (${plan.totalMachines}), не бывает`
+                    : `блоки выхода не делятся на группы, меньшие одной`
+                }.`
+              : ""
+          } Очисти поле и нажми Enter — вернётся автоматическое разбиение.</div>`
+      : plan.overrideTooBig
       ? `<div class="beltGroupNote warn">Запрошено <b>${plan.override}</b> ${pluralMachines(
           plan.override
         )} в группе, но лентами столько не накормить — максимум <b>${plan.autoCap}</b>. Считаю по максимуму; очисти поле и нажми Enter, чтобы вернуть автоматическое разбиение.</div>`
@@ -7842,7 +7906,15 @@
             plan.outBlockMachines
           )}: одна лента несёт ${plan.beltSpeed.toFixed(0)}/сек, весь выход этапа больше.`
         : `Весь выход этапа помещается на одну ленту (${plan.beltSpeed.toFixed(0)}/сек).`;
-    const manual = plan.overrideTooBig
+    const manual = plan.overrideGroups
+      ? `<div class="beltGroupNote alt">Число групп задано вручную: <b>${plan.overrideGroups}</b> → <b>${
+          plan.sizeSummary
+        }</b>${sizeLegend(plan.sizeSummary)}.${
+          plan.numGroups !== plan.overrideGroups
+            ? ` Получилось <b>${plan.numGroups}</b> ${pluralGroups(plan.numGroups)}: блоки выхода не делятся на группы, меньшие одной, а групп больше, чем заводов (${plan.totalMachines}), не бывает.`
+            : ""
+        } Очисти поле и нажми Enter — вернётся автоматическое разбиение.</div>`
+      : plan.overrideTooBig
       ? `<div class="beltGroupNote warn">Запрошено <b>${plan.override}</b> ${pluralMachines(
           plan.override
         )} в группе — больше, чем влезает на одну ленту выхода. Очисти поле и нажми Enter, чтобы вернуть автоматическое разбиение.</div>`
@@ -7867,13 +7939,40 @@
     const nodeId = input.dataset.node;
     const treeNode = findTreeNodeById(state.cascade.root, nodeId);
     if (!treeNode) return;
+    const byCount = input.classList && input.classList.contains("feedGroupCountInput");
     const raw = (input.value || "").trim();
+    const stageMachines = (() => {
+      const res = state.lastResult && state.lastResult.nodes && state.lastResult.nodes[nodeId];
+      return res && res.machines ? Math.max(1, Math.ceil(res.machines - 1e-9)) : null;
+    })();
     if (!raw) {
-      delete treeNode.feedGroupSize; // empty → back to the automatic split
+      // empty → back to the automatic split (only the field that was cleared)
+      delete treeNode[byCount ? "feedGroupCount" : "feedGroupSize"];
     } else {
-      const value = Math.floor(parseFloat(raw.replace(",", ".")));
-      if (!isFinite(value) || value < 1) return;
-      treeNode.feedGroupSize = value;
+      const parsed = parseFloat(raw.replace(",", "."));
+      const value = Math.floor(parsed);
+      if (!isFinite(parsed) || value < 1) {
+        showErrorBanner(`Нужно целое число не меньше 1 — «${raw}» не подходит.`);
+        return;
+      }
+      let accepted = value;
+      if (stageMachines && value > stageMachines) {
+        // групп не больше, чем заводов, и группа не больше всего этапа
+        accepted = stageMachines;
+        showErrorBanner(
+          byCount
+            ? `Групп не может быть больше, чем заводов на этапе (${stageMachines}) — поставил ${stageMachines}.`
+            : `В группе не может быть больше заводов, чем на этапе (${stageMachines}) — поставил ${stageMachines}.`
+        );
+      }
+      // Одно из двух: ввод числа групп очищает «заводов в группе» и наоборот
+      if (byCount) {
+        treeNode.feedGroupCount = accepted;
+        delete treeNode.feedGroupSize;
+      } else {
+        treeNode.feedGroupSize = accepted;
+        delete treeNode.feedGroupCount;
+      }
     }
     // Group sizing is a layout decision, not a throughput one - the solve is
     // unchanged, so we just redraw.
@@ -12242,6 +12341,7 @@
     makeDefaultNode,
     renderResults,
     renderStageFeedSection,
+    commitFeedGroupSize,
     renderInputResources,
     renderMakeFromPanel,
     renderCalcTabBar,
