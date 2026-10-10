@@ -1116,10 +1116,10 @@
           ${candidates
             .map(
               (r, idx) =>
-                `<div class="pathOption" data-recipe="${r.name}"><div class="routeLabel">Способ ${idx + 1}</div><div class="pathOptionMain"><div class="routeSteps"><span class="step">${iconImg(
+                `<div class="pathOption" data-recipe="${r.name}"><div class="routeLabel">Способ ${idx + 1}</div><div class="pathOptionMain"><div class="recipeTitleBlock"><div class="routeSteps"><span class="step">${iconImg(
                   recipeIconUrl(r),
                   22
-                )}${disambiguatedLabel(r, candidates)}</span></div>${recipeIOHTML(r, itemKeyToProduce)}</div></div>`
+                )}${disambiguatedLabel(r, candidates)}</span></div>${recipeMachineHTML(r)}</div>${recipeIOHTML(r, itemKeyToProduce)}</div></div>`
             )
             .join("")}
         </div>
@@ -1275,6 +1275,19 @@
   // Stacked "получим / нужно" block shown on the right of each recipe option.
   function recipeIOHTML(recipe, targetKey) {
     return `<div class="recipeIO">${recipeYieldHTML(recipe, targetKey)}${recipeNeedsHTML(recipe)}</div>`;
+  }
+
+  // «делается на: [иконка] Название завода» — самый простой завод под категорию рецепта (его же ставит расчёт),
+  // и сколько ещё подходит.
+  function recipeMachineHTML(recipe) {
+    const machines = state.dataset && recipe ? compatibleMachines(state.dataset, recipe) : [];
+    if (!machines.length) return "";
+    const first = machines[0];
+    const more = machines.length > 1 ? ` <span class="recipeMachineMore">и ещё ${machines.length - 1}</span>` : "";
+    return `<span class="recipeNeeds recipeMachine"><span class="recipeNeedsLabel">делается на:</span><span class="recipeNeed">${iconImg(
+      machineIconUrl(first),
+      18
+    )}<span>${escapeHtmlText(machineDisplayName(first))}</span></span>${more}</span>`;
   }
 
   function machineDisplayName(machine) {
@@ -4552,10 +4565,10 @@
     shown.forEach((recipe) => {
       const div = document.createElement("div");
       div.className = "pathOption";
-      div.innerHTML = `<div class="pathOptionMain"><div class="routeSteps"><span class="step">${iconImg(
+      div.innerHTML = `<div class="pathOptionMain"><div class="recipeTitleBlock"><div class="routeSteps"><span class="step">${iconImg(
         recipeIconUrl(recipe),
         22
-      )}${disambiguatedLabel(recipe, shown)}</span></div>${recipeIOHTML(recipe)}</div>`;
+      )}${disambiguatedLabel(recipe, shown)}</span></div>${recipeMachineHTML(recipe)}</div>${recipeIOHTML(recipe)}</div>`;
       div.addEventListener("click", () => safeCall(() => startNewRootChain(makeDefaultNode(recipe), true)));
       box.appendChild(div);
     });

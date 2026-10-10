@@ -373,6 +373,7 @@ window.__I18N_EN = {
 "отдельно": "separately",
 "группы": "groups",
 "на группу,": "per group,",
+"делается на:": "made in:",
 "— из:": "— from:",
 "(всего": "(total",
 "на этап": "per stage",

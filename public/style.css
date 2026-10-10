@@ -407,6 +407,11 @@ body.hideHints .beltGroupNote { display: none !important; }
 .recipeYields .recipeNeedsLabel { color: var(--teal); }
 .recipeNeedsLabel { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; color: var(--text-dim); text-align: right; white-space: nowrap; }
 .recipeNeedsEmpty { font-style: italic; }
+.recipeTitleBlock { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.recipeMachine { justify-content: flex-start; }
+.recipeMachine .recipeNeedsLabel { text-align: left; }
+.recipeMachine .recipeNeed { font-family: var(--sans, inherit); }
+.recipeMachineMore { color: var(--text-dim); }
 .recipeNeed { display: inline-flex; align-items: center; gap: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px 2px 3px; white-space: nowrap; }
 .recipeNeed .needAmt { font-weight: 700; color: var(--text); }
 .recipeNeed .needProb { font-weight: 600; color: var(--text-dim); font-size: 10px; }
