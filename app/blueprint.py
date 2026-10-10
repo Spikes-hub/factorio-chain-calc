@@ -347,14 +347,21 @@ def fluid_connections(entity: dict, geometry: dict | None = None) -> list[dict]:
     # Постройка поворачивается (0/4/8/12) вместе со своими трубными подключениями:
     # у повёрнутой теплицы вход воды уезжает на другую стену.
     steps = (int(entity.get("direction") or 0) // 4) % 4
+    mirror = bool(entity.get("mirror"))
     out = []
     for box_index, box in enumerate(rec["fluids"]):
         for conn in box.get("pipes") or []:
             pos = conn.get("pos") or [0, 0]
             px, py = float(pos[0]), float(pos[1])
+            conn_dir = int(conn.get("dir") or 0)
+            if mirror:
+                # Зеркало (Factorio 2.0, поле mirror у постройки) переворачивает порты слева направо ДО поворота
+                px = -px
+                if conn_dir in (4, 12):
+                    conn_dir = 16 - conn_dir
             for _ in range(steps):
                 px, py = -py, px
-            direction = (int(conn.get("dir") or 0) + steps * 4) % 16
+            direction = (conn_dir + steps * 4) % 16
             dx, dy = DIR_VECTORS.get(direction, (0, 0))
             cx, cy = left + w / 2 + px, top + h / 2 + py
             conn_tile = (math.floor(cx), math.floor(cy))
@@ -1119,6 +1126,7 @@ def pipe_network_report(obj: dict, geometry: dict | None = None) -> dict:
             kind[tile] = ("pipe", int(ent.get("direction") or 0))
 
     parent: dict = {tile: tile for tile in kind}
+    partner: dict = {}      # подземная труба -> ближайшая встречная
 
     def find(x):
         while parent[x] != x:
@@ -1135,14 +1143,27 @@ def pipe_network_report(obj: dict, geometry: dict | None = None) -> dict:
         if k == "pipe":
             for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
                 nb = (tile[0] + dx, tile[1] + dy)
-                if nb in kind:
-                    union(tile, nb)
+                if nb not in kind:
+                    continue
+                nk, nd = kind[nb]
+                if nk == "ground":
+                    # у подземной трубы открыто только устье: с боков и сзади она к соседу не подключается
+                    vx, vy = DIR_VECTORS.get(nd, (0, 0))
+                    if (nb[0] + vx, nb[1] + vy) != tile:
+                        continue
+                union(tile, nb)
         else:
             # устье подземной трубы смотрит в сторону direction, туннель — в обратную
             dx, dy = DIR_VECTORS.get(direction, (0, 0))
             surface = (tile[0] + dx, tile[1] + dy)
             if surface in kind:
-                union(tile, surface)
+                sk, sd = kind[surface]
+                if sk == "pipe":
+                    union(tile, surface)
+                else:
+                    vx, vy = DIR_VECTORS.get(sd, (0, 0))
+                    if (surface[0] + vx, surface[1] + vy) == tile:     # два устья смотрят друг на друга
+                        union(tile, surface)
             tdx, tdy = -dx, -dy
             max_len = 20
             rec_tile = None
@@ -1167,8 +1188,14 @@ def pipe_network_report(obj: dict, geometry: dict | None = None) -> dict:
                 if pk[0] == "ground":
                     pdx, pdy = DIR_VECTORS.get(pk[1], (0, 0))
                     if (pdx, pdy) == (tdx, tdy):
-                        union(tile, probe)
+                        partner[tile] = probe
                         break
+
+    # Подземная пара образуется, только если трубы выбрали друг друга: каждая подключается к ближайшей встречной, и
+    # если у ближайшей есть своя, ещё более близкая, то эта труба остаётся без туннеля
+    for tile, other in partner.items():
+        if partner.get(other) == tile:
+            union(tile, other)
 
     components: dict = {}
     for tile in kind:
@@ -1185,9 +1212,20 @@ def pipe_network_report(obj: dict, geometry: dict | None = None) -> dict:
             if conn["kind"] == "underground":
                 continue
             owner = find(approach) if approach in kind else None
+            if owner is not None and kind[approach][0] == "ground":
+                vx, vy = DIR_VECTORS.get(kind[approach][1], (0, 0))
+                mt = conn["machine_tile"]
+                if (approach[0] + vx, approach[1] + vy) != tuple(mt):
+                    owner = None                    # устье подземной трубы смотрит не на завод
             endpoints = sorted(components.get(owner, [])) if owner else []
             status.append({
                 "entity": ent.get("name"),
+                "origin": tuple(tiles_of(ent, geometry)[:2]),
+                "box": conn["box"],
+                "net": owner,
+                "approach_kind": kind[approach][0] if approach in kind else None,
+                "net_size": len(components.get(owner, [])) if owner is not None else 0,
+                "energy": bool(conn.get("energy")),
                 "tile": conn["machine_tile"],
                 "approach": approach,
                 "production": conn["production"],
@@ -1199,6 +1237,38 @@ def pipe_network_report(obj: dict, geometry: dict | None = None) -> dict:
     return {"components": {k: sorted(v) for k, v in components.items()},
             "network_count": len(components),
             "connections": status}
+
+
+def pipe_net_conflicts(obj: dict, geometry: dict | None = None, used: dict | None = None) -> list[dict]:
+    """Сети труб, в которые подключены вход и выход ОДНОГО завода: жидкости смешаются и завод встанет.
+
+    Исключение — сквозное топливо (бокс «вход-выход» по обе стороны завода). Считается строго по правилам игры
+    (см. pipe_network_report): у подземной трубы открыто только устье. Возвращает [{machine, boxes}]."""
+    report = pipe_network_report(obj, geometry)
+    seen: dict = {}
+    for c in report["connections"]:
+        if c.get("net") is None or c.get("energy"):
+            continue
+        if used is not None:
+            # знаем, какие боксы несут жидкость рецепта: смешение — это две разные жидкости в одной сети
+            label = used.get((c["origin"][0], c["origin"][1], c["box"]))
+            if label is None:
+                continue
+        else:
+            # без этих сведений судим по ролям: вход вместе с выходом в одной сети — смешение
+            label = c["production"]
+        seen.setdefault((c["entity"], c["origin"], c["net"]), {})[c["box"]] = label
+    problems: list = []
+    for (name, origin, _net), boxes in seen.items():
+        if len(set(boxes.values())) > 1:
+            problems.append({"machine": name, "boxes": sorted(boxes), "tile": origin})
+    if used is not None:
+        # подземная труба у порта без пары: туннель никуда не ведёт, бокс висит в воздухе
+        for c in report["connections"]:
+            if (c["origin"][0], c["origin"][1], c["box"]) in used and c.get("approach_kind") == "ground"                     and c.get("net") is not None and c.get("net_size") == 1:
+                problems.append({"machine": c["entity"], "boxes": [c["box"]], "tile": c["origin"],
+                                 "dangling": True})
+    return problems
 
 
 def describe(obj: dict, geometry: dict | None = None, entities_limit: int = 12) -> str:

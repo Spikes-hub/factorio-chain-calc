@@ -93,7 +93,12 @@ def ordered_boxes(ports: list, role: str, wall: int | None, alternate: bool = Fa
             remaining.remove(pick)
         return energy + order + remaining
     facing = [b for b in rest if any(p["box"] == b and p.get("direction") == wall for p in ports)]
-    return energy + facing + [b for b in rest if b not in facing]
+    # после боксов на нужную стену — боксы на противоположную (в коридор между столбцами: туда ведёт труба), и только
+    # потом те, чьё устье смотрит вдоль стенки (к ним трубу не подвести)
+    opposite = (wall + 8) % 16
+    inner = [b for b in rest if b not in facing
+             and any(p["box"] == b and p.get("direction") == opposite for p in ports)]
+    return energy + facing + inner + [b for b in rest if b not in facing and b not in inner]
 
 
 def chain_feasible(pitch: int, reach: int) -> bool:
@@ -248,8 +253,9 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
                 geometry: dict | None, pipe: str = "pipe",
                 pipe_ground: str = "pipe-to-ground", west_only: bool = False,
                 inward_outputs: bool = True, soft: str | None = None,
-                center_trunks_ok: bool = False, split_outputs: bool = False, exclude_box: int | None = None,
-                gap_key: tuple | None = None, extra_ports: list | None = None) -> tuple[list[dict], int, list[str]]:
+                center_trunks_ok: bool = False, split_outputs: bool = False, exclude_boxes: set | None = None,
+                gap_keys: list | None = None, extra_ports: list | None = None,
+                used_log: list | None = None) -> tuple[list[dict], int, list[str]]:
     """Трубы одной группы. Возвращает (новые сущности, следующий номер, замечания).
 
     x0 / x_end — левый и правый (не включая) край группы в тайлах, y0..y1 — её
@@ -278,7 +284,7 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
             continue
         side = WEST if (west_only or t[0] + t[2] / 2 < mid) else EAST
         conns = [c for c in bp.fluid_connections(ent, geometry)
-                 if c["kind"] != "underground" and c["box"] != exclude_box]
+                 if c["kind"] != "underground" and c["box"] not in (exclude_boxes or ())]
         for role, fluids in (("input", recipe_inputs), ("output", recipe_outputs)):
             boxes = ordered_boxes(conns, role, (side + 8) % 16 if (role == "output" and inward_outputs) else side,
                                   alternate=split_outputs and role == "output", count=len(fluids))
@@ -287,6 +293,8 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
                     notes.append(f"{role}: у завода нет бокса под жидкость {fluid} — трубу проведи сам")
                     continue
                 mine = [c for c in conns if c["box"] == boxes[index]]
+                if used_log is not None:
+                    used_log.append((t[0], t[1], boxes[index], (role, fluid)))
                 compatible = [c for c in mine if my_categories & set(c.get("categories") or ["default"])]
                 if mine and not compatible:
                     need = "/".join(sorted(set(mine[0].get("categories") or ["default"])))
@@ -325,16 +333,18 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
     order.update({("output", f): 100 + i for i, f in enumerate(recipe_outputs)})
     for side_keys in keys_by_side.values():
         side_keys.sort(key=lambda key: order.get(key, 999))
-        if gap_key and gap_key in side_keys:          # жидкость из зазора всегда идёт цепочкой, остальные — стволами
-            side_keys.remove(gap_key)
-            side_keys.insert(0, gap_key)
+        present = [k for k in (gap_keys or []) if k in side_keys]
+        if present:                                   # жидкость из зазора идёт цепочкой, остальные — стволами
+            for k in present:
+                side_keys.remove(k)
+            side_keys[0:0] = present
     # Первая жидкость стороны — цепочка вдоль стенки (общий механизм с портами внутрь блока), остальные — стволы.
     chain_key = {}
     for side, keys in keys_by_side.items():
         if not keys:
             continue
         rows = sorted({t[1] for sd, ky, t in stubs if sd == side and ky == keys[0]})
-        if keys[0] == gap_key or all(b - a - 1 <= reach for a, b in zip(rows, rows[1:])):
+        if all(b - a - 1 <= reach for a, b in zip(rows, rows[1:])):
             chain_key[side] = keys[0]
     chained = []
     for item in stubs:
