@@ -72,6 +72,23 @@
   } catch (e) {
     state.hideHints = false;
   }
+  // Мод Train ETA: галочка «я использую мод» и скорости погрузки/разгрузки (шт/сек).
+  const TRAIN_USE_KEY = "chaincalc_train_mod";
+  const TRAIN_LOAD_KEY = "chaincalc_train_load";
+  const TRAIN_UNLOAD_KEY = "chaincalc_train_unload";
+  const TRAIN_RESERVE = 0.3; // запас на сигналы, очереди и разгон: мод их не видит
+  state.trainUse = false;
+  state.trainLoad = 60;
+  state.trainUnload = 60;
+  try {
+    state.trainUse = localStorage.getItem(TRAIN_USE_KEY) === "1";
+    const load = parseFloat(localStorage.getItem(TRAIN_LOAD_KEY));
+    const unload = parseFloat(localStorage.getItem(TRAIN_UNLOAD_KEY));
+    if (load > 0) state.trainLoad = load;
+    if (unload > 0) state.trainUnload = unload;
+  } catch (e) {
+    // localStorage недоступен — остаются значения по умолчанию
+  }
 
   // ---------- multi-tab chains ----------
   // Lets you click a raw input in one calculation and spin up a whole
@@ -9653,7 +9670,220 @@
     return btn;
   }
 
+  // ---------- «Поезд»: сколько везти за рейс (мод Train ETA) ----------
+  // Время в пути приходит из мода (в одну сторону). Круг = ×2. Поезд грузится, едет, разгружается и едет назад, а блок
+  // всё это время ест ресурс, поэтому партия Q должна покрывать весь круг:
+  //   Q = r · T_круга / (1 − r / v_погрузки − r / v_разгрузки)
+  // У жидкостей погрузка и разгрузка мгновенные: Q = r · T_круга. К результату добавляется запас 30%.
+
+  /** «мин:сек» → секунды; пустая строка — null, неверный формат — NaN. */
+  function parseTrainTime(text) {
+    const raw = String(text == null ? "" : text).trim();
+    if (!raw) return null;
+    const m = /^(\d+):([0-5]?\d)$/.exec(raw);
+    if (!m) return NaN;
+    return Number(m[1]) * 60 + Number(m[2]);
+  }
+
+  function formatTrainTime(seconds) {
+    if (!(seconds >= 0)) return "";
+    const total = Math.round(seconds);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  }
+
+  // Поле времени — шаблон «__:__» с постоянным двоеточием: набираются только цифры (две на минуты, две на секунды),
+  // «:» добивает минуты нулём и переходит к секундам. Хранится строка цифр (data-digits), на экране — маска.
+  function trainMaskText(digits) {
+    const d = String(digits || "").slice(0, 4);
+    if (!d) return "";
+    return `${d.slice(0, 2).padEnd(2, "_")}:${d.slice(2, 4).padEnd(2, "_")}`;
+  }
+
+  function trainDigitsFromSeconds(seconds) {
+    if (!(seconds >= 0)) return "";
+    const total = Math.min(99 * 60 + 59, Math.round(seconds));
+    return String(Math.floor(total / 60)).padStart(2, "0") + String(total % 60).padStart(2, "0");
+  }
+
+  /** Цифры маски → секунды; пусто — null; секунды больше 59 — NaN. Одна цифра минут — это минуты (1 = 1 мин),
+   *  одна цифра секунд — десятки (3 = 30 с). */
+  function trainSecondsFromDigits(digits) {
+    const d = String(digits || "").replace(/\D/g, "").slice(0, 4);
+    if (!d) return null;
+    const minutes = Number(d.slice(0, 2));
+    const seconds = Number(d.slice(2, 4).padEnd(2, "0") || "0");
+    if (seconds > 59) return NaN;
+    return minutes * 60 + seconds;
+  }
+
+  /** Нажатие в поле времени: возвращает новые цифры или null, если клавишу не трогаем. */
+  function trainDigitsAfterKey(digits, key) {
+    const d = String(digits || "");
+    if (/^\d$/.test(key)) return d.length < 4 ? d + key : d;
+    if (key === ":" || key === "." || key === "," || key === ";") {
+      if (d.length === 1) return `0${d}`;          // «1» и «:» → 01:__
+      return d.length < 2 ? d : d;
+    }
+    if (key === "Backspace") return d.slice(0, -1);
+    if (key === "Delete") return "";
+    return null;
+  }
+
+  /** Партия за рейс. {ok, base, withReserve, reason}. oneWaySec — время в одну сторону, rate — расход в сек. */
+  function trainTripAmount(rate, oneWaySec, isFluid, loadSpeed, unloadSpeed) {
+    const round = 2 * oneWaySec;
+    if (!(rate > 0) || !(oneWaySec >= 0)) return { ok: false, reason: "нет расхода или времени" };
+    let base;
+    if (isFluid) {
+      base = rate * round;
+    } else {
+      const share = rate / loadSpeed + rate / unloadSpeed;
+      if (!(share < 1 - 1e-9)) {
+        return {
+          ok: false,
+          reason: `не хватает скорости погрузки/разгрузки: блок ест ${rate.toFixed(2)}/сек, а погрузка ${loadSpeed}/сек и разгрузка ${unloadSpeed}/сек вместе медленнее`,
+        };
+      }
+      base = (rate * round) / (1 - share);
+    }
+    return { ok: true, base, withReserve: base * (1 + TRAIN_RESERVE), round };
+  }
+
+  /** Ресурсы вкладки, которые подвозит поезд: сырьё рецептов и топливо — отдельными строками. */
+  function trainRowsFor(cascade, result) {
+    const rows = [];
+    if (!result || result.error) return rows;
+    for (const [key, rate] of Object.entries(result.rawInputs || {})) {
+      if (rate > 1e-9) rows.push({ id: key, key, rate, fuel: false, fluid: key.startsWith("fluid:") });
+    }
+    let fuel = {};
+    try {
+      fuel = computeFuelInputs(cascade, result);
+    } catch (e) {
+      fuel = {};
+    }
+    for (const [key, rate] of Object.entries(fuel)) {
+      if (rate > 1e-9) rows.push({ id: `fuel|${key}`, key, rate, fuel: true, fluid: key.startsWith("fluid:") });
+    }
+    return rows;
+  }
+
+  /** Ячейка результата строки: {html, cls}. */
+  function trainResultHTML(rate, fluid, seconds) {
+    if (!(seconds >= 0)) return { html: `<span class="hint">впиши время в пути</span>`, cls: "" };
+    const trip = trainTripAmount(rate, seconds, fluid, state.trainLoad, state.trainUnload);
+    if (!trip.ok) return { html: trip.reason, cls: " warn" };
+    return {
+      html: `везти за рейс: <b>${trainAmountText(trip.withReserve, fluid)}</b> <span class="hint">(${trainAmountText(
+        trip.base,
+        fluid
+      )} + ${Math.round(TRAIN_RESERVE * 100)}% запас)</span>`,
+      cls: "",
+    };
+  }
+
+  function trainAmountText(value, fluid) {
+    return `${Math.ceil(value - 1e-9).toLocaleString("ru-RU")} ${fluid ? "л" : "шт"}`;
+  }
+
+  function renderTrainSection() {
+    const panel = document.getElementById("trainPanel");
+    if (!panel) return;
+    const result = state.lastResult;
+    const rows = state.trainUse && state.dataset && state.cascade && result ? trainRowsFor(state.cascade, result) : [];
+    if (!state.trainUse || !rows.length) {
+      panel.classList.add("hidden");
+      panel.innerHTML = "";
+      return;
+    }
+    panel.classList.remove("hidden");
+    const times = (state.cascade && state.cascade.trainTimes) || {};
+    const body = rows
+      .map((r) => {
+        const name = keyDisplayName(state.dataset, r.key);
+        const icon = iconImg(keyIconUrl(state.dataset, r.key), 18);
+        const seconds = times[r.id];
+        const digits = seconds >= 0 ? trainDigitsFromSeconds(seconds) : "";
+        const shown = trainMaskText(digits);
+        const unit = r.fluid ? "л/сек" : "шт/сек";
+        const outcome = trainResultHTML(r.rate, r.fluid, seconds);
+        const result = outcome.html;
+        const cls = outcome.cls;
+        return (
+          `<div class="trainRow">` +
+          `<span class="trainName">${icon}${name}${r.fuel ? `<span class="trainTag">топливо</span>` : ""}</span>` +
+          `<span class="trainRate">${r.rate.toFixed(2)} ${unit}</span>` +
+          `<input type="text" inputmode="numeric" maxlength="5" autocomplete="off" class="feedGroupInput trainTimeInput" data-train-id="${escapeHtmlText(
+            r.id
+          )}" data-digits="${digits}" data-committed="${digits}" data-rate="${r.rate}" data-fluid="${
+            r.fluid ? 1 : 0
+          }" value="${shown}" placeholder="__:__" title="Время в пути в одну сторону: минуты:секунды (набирай цифры, двоеточие уже стоит; «:» после одной цифры минут добивает её нулём). Круг считается как ×2." />` +
+          `<span class="trainResult${cls}">${result}</span>` +
+          `</div>`
+        );
+      })
+      .join("");
+    panel.innerHTML =
+      `<h2>Поезд: сколько везти за рейс</h2>` +
+      `<p class="hint">Время в пути вводится <b>в одну сторону</b> (как показывает мод Train ETA), круг считается как <b>×2</b>. ` +
+      `Погрузка ${state.trainLoad}/сек, разгрузка ${state.trainUnload}/сек (меняются в настройках), жидкости грузятся мгновенно. ` +
+      `К числу добавлен <b>запас +${Math.round(TRAIN_RESERVE * 100)}%</b> на сигналы, очереди и разгон. ` +
+      `Топливо считается отдельно от сырья рецептов. Считаются все заводы вкладки.</p>` +
+      `<div class="trainRows">${body}</div>`;
+  }
+
+  /** Ввод времени: сохраняем в цепочке (по вкладке и ресурсу) и пересчитываем раздел. */
+  function commitTrainTime(input) {
+    const id = input.dataset.trainId;
+    if (!id || !state.cascade) return;
+    const masked = input.dataset && input.dataset.digits != null;
+    const parsed = masked ? trainSecondsFromDigits(input.dataset.digits) : parseTrainTime(input.value);
+    if (Number.isNaN(parsed)) {
+      input.classList && input.classList.add("bad");
+      showErrorBanner(`Секунд должно быть не больше 59 — «${input.value}» не подходит (формат мин:сек, например 01:30).`);
+      return;
+    }
+    if (!state.cascade.trainTimes) state.cascade.trainTimes = {};
+    if (parsed == null) delete state.cascade.trainTimes[id];
+    else state.cascade.trainTimes[id] = parsed;
+    saveCurrentTabSnapshot();
+    state.dirty = true;
+    if (input.dataset) input.dataset.committed = input.dataset.digits || "";
+    // обновляем только ячейку этой строки: перерисовка всего раздела сбросила бы фокус соседнего поля
+    const row = input.closest && input.closest(".trainRow");
+    const cell = row && row.querySelector && row.querySelector(".trainResult");
+    if (cell) {
+      const outcome = trainResultHTML(Number(input.dataset.rate), input.dataset.fluid === "1", parsed);
+      cell.innerHTML = outcome.html;
+      cell.className = `trainResult${outcome.cls}`;
+    } else {
+      renderTrainSection();
+    }
+  }
+
+  /** Настройки раздела «Поезд»: галочка и скорости погрузки/разгрузки. */
+  function applyTrainSettings(patch) {
+    if (patch.use != null) state.trainUse = !!patch.use;
+    if (patch.load > 0) state.trainLoad = patch.load;
+    if (patch.unload > 0) state.trainUnload = patch.unload;
+    try {
+      localStorage.setItem(TRAIN_USE_KEY, state.trainUse ? "1" : "0");
+      localStorage.setItem(TRAIN_LOAD_KEY, String(state.trainLoad));
+      localStorage.setItem(TRAIN_UNLOAD_KEY, String(state.trainUnload));
+    } catch (e) {
+      // localStorage недоступен — настройка не запомнится между сессиями
+    }
+    const box = document.getElementById("settingsTrainMod");
+    if (box) box.checked = state.trainUse;
+    const load = document.getElementById("settingsTrainLoad");
+    const unload = document.getElementById("settingsTrainUnload");
+    if (load) load.value = String(state.trainLoad);
+    if (unload) unload.value = String(state.trainUnload);
+    renderTrainSection();
+  }
+
   function renderInputResources() {
+    renderTrainSection();
     const row = document.getElementById("inputResourceRow");
     const out = document.getElementById("inputResourceResults");
     row.innerHTML = "";
@@ -12095,6 +12325,75 @@
       if (!(e.target.closest && e.target.closest("#settingsPipePick"))) safeCall(() => togglePipeList(false));
     });
 
+    const trainBox = document.getElementById("settingsTrainMod");
+    if (trainBox) trainBox.addEventListener("change", (e) => safeCall(() => applyTrainSettings({ use: e.target.checked })));
+    for (const [id, field] of [["settingsTrainLoad", "load"], ["settingsTrainUnload", "unload"]]) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.addEventListener("change", (e) =>
+        safeCall(() => {
+          const value = parseFloat(String(e.target.value).replace(",", "."));
+          if (!(value > 0)) {
+            showErrorBanner("Скорость погрузки и разгрузки — положительное число (шт/сек).");
+            applyTrainSettings({});
+            return;
+          }
+          applyTrainSettings({ [field]: value });
+        })
+      );
+    }
+    applyTrainSettings({});               // подставляем сохранённые значения в настройки
+    const trainPanel = document.getElementById("trainPanel");
+    if (trainPanel) {
+      const setDigits = (inp, digits) => {
+        inp.dataset.digits = digits;
+        inp.value = trainMaskText(digits);
+        inp.classList.remove("bad");
+        // курсор всегда после последней набранной цифры
+        const pos = inp.value.length ? (digits.length <= 2 ? digits.length : digits.length + 1) : 0;
+        try {
+          inp.setSelectionRange(pos, pos);
+        } catch (err) {
+          // поле без выделения — не страшно
+        }
+      };
+      trainPanel.addEventListener("keydown", (e) => {
+        const inp = e.target.closest && e.target.closest(".trainTimeInput");
+        if (!inp) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          safeCall(() => commitTrainTime(inp));
+          return;
+        }
+        if (e.ctrlKey || e.metaKey || e.altKey) return;          // Ctrl+V, Ctrl+A и прочее — как обычно
+        const next = trainDigitsAfterKey(inp.dataset.digits || "", e.key);
+        if (next == null) return;                                 // Tab, стрелки…
+        e.preventDefault();
+        setDigits(inp, next);
+      });
+      trainPanel.addEventListener("paste", (e) => {
+        const inp = e.target.closest && e.target.closest(".trainTimeInput");
+        if (!inp) return;
+        e.preventDefault();
+        const text = (e.clipboardData && e.clipboardData.getData("text")) || "";
+        // «1:30» → 0130; «90» → 90 минут не бывает осмысленным, берём как набрали цифры
+        const m = /^\s*(\d{1,2}):(\d{1,2})\s*$/.exec(text);
+        const digits = m ? m[1].padStart(2, "0") + m[2].padStart(2, "0") : text.replace(/\D/g, "").slice(0, 4);
+        setDigits(inp, digits);
+      });
+      trainPanel.addEventListener("focusin", (e) => {
+        const inp = e.target.closest && e.target.closest(".trainTimeInput");
+        if (inp) setDigits(inp, inp.dataset.digits || "");
+      });
+      trainPanel.addEventListener("focusout", (e) => {
+        const inp = e.target.closest && e.target.closest(".trainTimeInput");
+        if (!inp) return;
+        const stored = inp.dataset.committed != null ? inp.dataset.committed : null;
+        if (stored === (inp.dataset.digits || "")) return;
+        safeCall(() => commitTrainTime(inp));
+      });
+    }
+
     const settingsHideHints = document.getElementById("settingsHideHints");
     if (settingsHideHints) {
       settingsHideHints.addEventListener("change", (e) =>
@@ -12342,6 +12641,17 @@
     renderResults,
     renderStageFeedSection,
     commitFeedGroupSize,
+    parseTrainTime,
+    formatTrainTime,
+    trainMaskText,
+    trainDigitsFromSeconds,
+    trainSecondsFromDigits,
+    trainDigitsAfterKey,
+    trainTripAmount,
+    trainRowsFor,
+    renderTrainSection,
+    commitTrainTime,
+    applyTrainSettings,
     renderInputResources,
     renderMakeFromPanel,
     renderCalcTabBar,

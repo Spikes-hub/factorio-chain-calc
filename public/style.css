@@ -657,6 +657,21 @@ table.resultTable th { color: var(--text-dim); font-weight: 500; text-transform:
   background: var(--panel); color: var(--text); font: inherit;
 }
 .feedGroupInput:focus { outline: none; border-color: var(--accent); }
+/* раздел «Поезд» и его настройки */
+.trainSpeeds { display: flex; gap: 18px; flex-wrap: wrap; margin: 6px 0; font-size: 13px; }
+.trainSpeeds label { display: inline-flex; align-items: center; gap: 6px; }
+.trainRows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.trainRow { display: grid; grid-template-columns: minmax(180px, 1.2fr) auto auto minmax(200px, 1.6fr); gap: 8px 14px;
+  align-items: center; padding: 6px 10px; background: var(--panel-2, var(--panel)); border: 1px solid var(--line);
+  border-radius: 8px; font-size: 13px; }
+.trainRow .trainName { display: inline-flex; align-items: center; gap: 6px; }
+.trainRow .trainRate { color: var(--text-dim); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.trainRow .trainTimeInput { width: 76px; text-align: center; }
+.trainRow .trainTimeInput.bad { border-color: var(--danger); }
+.trainRow .trainResult b { font-size: 14px; }
+.trainRow .trainResult.warn { color: var(--danger); }
+.trainTag { font-size: 11px; color: var(--text-dim); margin-left: 4px; }
+@media (max-width: 700px) { .trainRow { grid-template-columns: 1fr 1fr; } }
 .beltBtnRow { display: flex; justify-content: flex-start; margin-top: 6px; }
 .beltGroupBoxHead {
   display: flex; align-items: center; justify-content: space-between;

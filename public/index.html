@@ -214,6 +214,29 @@
             видно. Настройка общая для страницы и переживает перезагрузку.
           </p>
 
+          <h3 class="settingsSubhead">Поезда</h3>
+          <label class="recipeFilterRow"
+                 title="Включает раздел «Поезд» над «Маяками»: время в пути, снятое модом, превращается в число предметов за рейс.">
+            <input type="checkbox" id="settingsTrainMod" /> я использую мод
+            <b>Train ETA</b>
+          </label>
+          <p class="hint">
+            Мод считает, сколько едет поезд между двумя точками.
+            <a href="https://github.com/Spikes-hub/factorio-train-eta" target="_blank" rel="noopener">GitHub</a> ·
+            <a href="https://mods.factorio.com/mod/train-eta" target="_blank" rel="noopener">мод на сайте Factorio</a>.
+            Если галочка стоит, над «Маяками» появляется раздел «Поезд»: для каждого ресурса вкладки вводишь время в
+            пути (мин:сек, в одну сторону), а калькулятор считает, сколько везти за рейс, чтобы блок не простаивал.
+          </p>
+          <div class="trainSpeeds">
+            <label>скорость погрузки, шт/сек
+              <input type="text" inputmode="decimal" id="settingsTrainLoad" class="feedGroupInput" /></label>
+            <label>скорость разгрузки, шт/сек
+              <input type="text" inputmode="decimal" id="settingsTrainUnload" class="feedGroupInput" /></label>
+          </div>
+          <p class="hint">
+            По умолчанию 60 и 60. Жидкости грузятся и разгружаются мгновенно — для них скорость не нужна.
+          </p>
+
           <h3 class="settingsSubhead">Блюпринты</h3>
           <div class="pipePick" id="settingsPipePick">
             <span class="pipePickLabel">Труба для блюпринтов:</span>
@@ -349,6 +372,8 @@
                 <p class="hint">Соберите цепочку и нажмите «Рассчитать».</p>
               </div>
             </section>
+
+            <section class="panel hidden" id="trainPanel"></section>
 
             <section class="panel" id="beaconsPanel">
               <h2>Маяки</h2>
