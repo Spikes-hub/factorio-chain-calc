@@ -7446,24 +7446,12 @@
     const craftNote = payload
       ? machineCraftNoteHTML(null, payload.recipe, payload.machine)
       : "";
-    const fluids = data.fluids || {};
-    const hasFluids = (fluids.inputs || []).length || (fluids.outputs || []).length;
-    const fluidNote = hasFluids
-      ? `<div class="hint">Газ и жидкость: вход ${
-          (fluids.inputs || []).join(", ") || "—"
-        }, выход ${(fluids.outputs || []).join(", ") || "—"}. ${
-          payload && payload.pipes
-            ? "Подземные трубы поставлены к портам, смотрящим наружу и в коридор; что не получилось — в замечаниях. Свободные тайлы под трубы:"
-            : "Трубы не ставились — тайлы под них свободны:"
-        } ${(data.portTiles || []).map((t) => `(${t[0]},${t[1]})`).join(" ") || "—"}</div>`
-      : "";
     return (
       `<textarea class="bpString" readonly rows="3">${data.string}</textarea>` +
       `<div class="bpPanelRow"><button type="button" class="btn bpCopyBtn">Скопировать строку</button>` +
       `<span class="hint">построек: ${data.entityCount} · заводов: ${payload.count}${
         payload.groups && payload.groups.length > 1 ? ` (${payload.groups.join(" + ")})` : ""
       } · столбов: ${data.poles} · потребителей: ${data.consumers}</span></div>` +
-      fluidNote +
       craftNote +
       (warnings ? `<div class="bpWarns">${warnings}</div>` : "") +
       ((data.notes || []).length
@@ -7471,10 +7459,7 @@
             .map((t) => `<div class="hint">${previewEscape(t)}</div>`)
             .join("")}</details>`
         : "") +
-      blueprintPreviewHTML(data) +
-      (data.summary
-        ? `<details class="bpDetails"><summary>Что именно построится</summary><pre>${data.summary}</pre></details>`
-        : "")
+      blueprintPreviewHTML(data)
     );
   }
 
