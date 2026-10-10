@@ -399,8 +399,13 @@ body.hideHints .beltGroupNote { display: none !important; }
 .pathOption:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(20,23,26,0.06); }
 .pathOption .routeLabel { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); margin-bottom: 8px; }
 .pathOption .routeSteps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.pathOption .step { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px 4px 4px; }
-.pathOptionMain { display: flex; align-items: flex-start; gap: 10px 20px; flex-wrap: wrap; }
+.pathOption .step { display: flex; max-width: 100%; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 4px 10px 4px 4px; }
+/* название слева, «получим / нужно» справа — в одну строку, пока хватает ширины; левая часть сжимается, а не
+   уезжает вниз (иначе справа остаётся пустое место, а блок «нужно» лежит под названием) */
+.pathOptionMain { display: flex; align-items: flex-start; gap: 10px 20px; flex-wrap: nowrap; }
+.pathOptionMain > .recipeTitleBlock { flex: 1 1 0; min-width: 140px; }
+.pathOptionMain > .recipeIO { flex: 0 1 auto; max-width: 64%; }
+@media (max-width: 520px) { .pathOptionMain { flex-wrap: wrap; } .pathOptionMain > .recipeIO { max-width: none; } }
 .routeSteps { min-width: 0; }
 .recipeIO { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-left: auto; }
 .recipeNeeds { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }

@@ -1277,14 +1277,14 @@
     return `<div class="recipeIO">${recipeYieldHTML(recipe, targetKey)}${recipeNeedsHTML(recipe)}</div>`;
   }
 
-  // «делается на: [иконка] Название завода» — самый простой завод под категорию рецепта (его же ставит расчёт),
+  // «[иконка] Название завода» — самый простой завод под категорию рецепта (его же ставит расчёт),
   // и сколько ещё подходит.
   function recipeMachineHTML(recipe) {
     const machines = state.dataset && recipe ? compatibleMachines(state.dataset, recipe) : [];
     if (!machines.length) return "";
     const first = machines[0];
     const more = machines.length > 1 ? ` <span class="recipeMachineMore">и ещё ${machines.length - 1}</span>` : "";
-    return `<span class="recipeNeeds recipeMachine"><span class="recipeNeedsLabel">делается на:</span><span class="recipeNeed">${iconImg(
+    return `<span class="recipeNeeds recipeMachine"><span class="recipeNeed">${iconImg(
       machineIconUrl(first),
       18
     )}<span>${escapeHtmlText(machineDisplayName(first))}</span></span>${more}</span>`;
