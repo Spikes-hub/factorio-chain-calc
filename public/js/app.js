@@ -5055,7 +5055,6 @@
 
     const solids = stageSolidInputs(n, cascadeRoot);
     const keys = Object.keys(solids).filter((k) => solids[k] > 0);
-    if (!keys.length) return null;
 
     const totalMachines = Math.max(1, Math.ceil(n.machines - 1e-9));
     const perMachine = {};
@@ -5075,6 +5074,9 @@
     // Пепел считается частью выхода, если так решил человек (см. ashToggle).
     const outPlan = computeCombinedOutputPlan(combinedOutputItems(n), n.machines);
     const usesOutputBelt = !!outPlan && !outPlan.oneMachineNeedsMultipleBelts;
+    // Твёрдых входов нет (всё по трубам), но продукт едет лентой: группы режет один только выход — сколько заводов
+    // выгружает на одну ленту. Без ленты выхода групп нет вовсе.
+    if (!keys.length && !usesOutputBelt) return null;
     const priorityNode = findTreeNodeById(cascadeRoot, n.id);
     // Приоритет всегда «выход»: подача режется по блокам выгрузки, чтобы каждый блок
     // получал полную ленту.
@@ -5316,7 +5318,7 @@
       runnerUp: runnerUp
         ? { pairedCount: runnerUp.pairedCount, numGroups: runnerUp.numGroups, totalBelts: runnerUp.totalBelts, maxGroup: runnerUp.maxGroup }
         : null,
-      hasSolids: true,
+      hasSolids: keys.length > 0,
     };
   }
 
@@ -5362,6 +5364,12 @@
       );
     }
 
+    if (!p.hasSolids) {
+      return (
+        `<div class="sumLine"><span class="sumTag">группы</span>${sizes}${manual}</div>` +
+        `<div class="sumLine"><span class="sumTag">подача</span>только жидкости — по трубам</div>`
+      );
+    }
     return (
       `<div class="sumLine"><span class="sumTag">группы</span>${sizes}${manual}</div>` +
       `<div class="sumLine"><span class="sumTag">подача</span><b>${p.beltsPerGroup} ${pluralBelts(p.beltsPerGroup)}</b> на группу, <b>${
@@ -7704,6 +7712,7 @@
   function renderStageFeedSection(n) {
     const plan = computeFeedPlan(n);
     if (!plan) return "";
+    if (!plan.hasSolids) return renderOutputOnlyGroupsHTML(n, plan);
 
     // How the groups sit relative to the output belt.
     const blockNote = !plan.usesOutputBelt
@@ -7831,6 +7840,39 @@
       `<div class="beltGroupBoxFoot">` +
       inserterRow +
       `</div>` +
+      `</div>`
+    );
+  }
+
+  // Этап без твёрдых входов: сырьё идёт по трубам, групп подачи нет. Заводы делятся на группы по выходу — сколько их
+  // выгружает на одну ленту, — и размер группы можно задать вручную, как у обычной карточки.
+  function renderOutputOnlyGroupsHTML(n, plan) {
+    const head =
+      plan.minGroup === plan.maxGroup
+        ? `по ${plan.maxGroup} ${pluralMachines(plan.maxGroup)}`
+        : `${plan.sizeSummary} ${pluralMachines(plan.maxGroup)}${sizeLegend(plan.sizeSummary)}`;
+    const blocks =
+      plan.outBlocks > 1
+        ? `Выход уходит на <b>${plan.outBlocks}</b> ${pluralBlocks(plan.outBlocks)} по <b>${plan.outBlockMachines}</b> ${pluralMachines(
+            plan.outBlockMachines
+          )}: одна лента несёт ${plan.beltSpeed.toFixed(0)}/сек, весь выход этапа больше.`
+        : `Весь выход этапа помещается на одну ленту (${plan.beltSpeed.toFixed(0)}/сек).`;
+    const manual = plan.overrideTooBig
+      ? `<div class="beltGroupNote warn">Запрошено <b>${plan.override}</b> ${pluralMachines(
+          plan.override
+        )} в группе — больше, чем влезает на одну ленту выхода. Очисти поле и нажми Enter, чтобы вернуть автоматическое разбиение.</div>`
+      : plan.override
+      ? `<div class="beltGroupNote alt">Размер группы задан вручную: <b>${plan.override}</b> ${pluralMachines(plan.override)} → <b>${
+          plan.sizeSummary
+        }</b>${sizeLegend(plan.sizeSummary)}. Очисти поле и нажми Enter — вернётся автоматическое разбиение.</div>`
+      : "";
+    return (
+      `<div class="beltGroupBox">` +
+      `<div class="beltGroupBoxHead"><span class="beltGroupBoxLabel">Группы по выходу · ${plan.numGroups} ${pluralGroups(
+        plan.numGroups
+      )} ${head}</span>${feedGroupSizeInputHTML(n.id, plan)}</div>` +
+      `<div class="beltGroupNote">Твёрдых входов нет — сырьё приходит по трубам, лент подачи не нужно. ${blocks}</div>` +
+      manual +
       `</div>`
     );
   }

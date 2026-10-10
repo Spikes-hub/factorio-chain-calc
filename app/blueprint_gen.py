@@ -1429,10 +1429,12 @@ def _flip_vertical(orientation: int) -> int:
     """Отражение сверху вниз (через горизонтальную ось): поворот на 180° плюс зеркало. Все порты отражённого завода
     встают точно напротив своих образов: порт, смотрящий вниз, и такой же порт соседа, смотрящий вверх, — в одной клетке."""
     rotation, mirrored = _unmirror(orientation)
-    return (rotation + 8) % 16 + (0 if mirrored else MIRROR)
+    # зеркало по горизонтальной оси = поворот на 180° и зеркало слева направо: R(180°)·M·R(θ) = R(180° − θ)·M
+    return (8 - rotation) % 16 + (0 if mirrored else MIRROR)
 
 
-def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int, uniform: bool = False) -> dict | None:
+def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int, uniform: bool = False,
+                drop_wall: int | None = None) -> dict | None:
     """Столбец парами с зазором: верхний завод смотрит устьем жидкости вниз, нижний — вверх, между ними зазор.
 
     Для жидкости, чей порт стоит по центру стенки и смотрит вдоль столбца (шаблон «Фабрика наноматериалов»):
@@ -1462,6 +1464,9 @@ def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int, unifo
         for r_b in partners:
             if r_b not in allowed or r_b == r_a:
                 continue
+            if drop_wall is not None and (machine_drop_side(spec.machine, r_a, geometry) != drop_wall
+                                          or machine_drop_side(spec.machine, r_b, geometry) != drop_wall):
+                continue                              # постройка сама выгружает на ленту: оба завода — на нужную стену
             ports = {r_a: machine_ports(spec.machine, geometry, r_a),
                      r_b: machine_ports(spec.machine, geometry, r_b)}
             # Боксы, у которых устье смотрит вниз у верхнего завода пары и вверх у нижнего (зазор А), и наоборот (зазор Б)
@@ -1816,10 +1821,10 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
     gap_left = gap_right = None
     fluid_in_eff, fluid_out_eff = fluid_in_all, fluid_out_all
     if gap_pairs:
-        if center_supply or own_loader or self_dump or not spec.pipes:
+        if center_supply or own_loader or (self_dump and gap_pairs != 2) or not spec.pipes:
             raise _GapUnavailable("раскладка парами для этого блока не годится")
-        gap_left = _gap_column(spec, geom, 2, 12, uniform=gap_pairs == 2)
-        gap_right = _gap_column(spec, geom, 2, 4, uniform=gap_pairs == 2)
+        gap_left = _gap_column(spec, geom, 2, 12, uniform=gap_pairs == 2, drop_wall=4 if self_dump else None)
+        gap_right = _gap_column(spec, geom, 2, 4, uniform=gap_pairs == 2, drop_wall=12 if self_dump else None)
         if (not gap_left or not gap_right
                 or [g["key"] for g in gap_left["gaps"]] != [g["key"] for g in gap_right["gaps"]]
                 or [g["box"] for g in gap_left["gaps"]] != [g["box"] for g in gap_right["gaps"]]):
@@ -1962,8 +1967,10 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
             if forced_token is not None:
                 _FORCED_ORIENTATION.reset(forced_token)
         if gap_pairs:
-            plan_left = _gap_column(spec, geom, left_count, 12, uniform=gap_pairs == 2)
-            plan_right = _gap_column(spec, geom, right_count, 4, uniform=gap_pairs == 2)
+            plan_left = _gap_column(spec, geom, left_count, 12, uniform=gap_pairs == 2,
+                                    drop_wall=4 if (out_belt and self_dump) else None)
+            plan_right = _gap_column(spec, geom, right_count, 4, uniform=gap_pairs == 2,
+                                     drop_wall=12 if (out_belt and self_dump) else None)
         drops_on_belt = (out_belt and self_dump
                          and machine_drop_side(spec.machine, plan_left["direction"], geom) == 4
                          and machine_drop_side(spec.machine, plan_right["direction"], geom) == 12)
