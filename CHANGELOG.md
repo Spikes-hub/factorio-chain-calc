@@ -4,10 +4,6 @@
 
 All notable changes are listed here, newest first. Format: version — date.
 
-## Unreleased
-
-- Train section: when the loading and unloading of one train are slower than the block eats, the number of trains is calculated (each train loads at its own station) and the amount per trip is shown for one train.
-
 ## 0.2.0 — 2026-10-10
 
 ### Major changes
@@ -28,7 +24,8 @@ All notable changes are listed here, newest first. Format: version — date.
   *Train* section appears above the beacons: enter the travel time (min:sec, one way, the round trip is counted as x2)
   for each resource of the tab and get how much to carry per trip so that the block does not stand idle, with a +30%
   reserve. Loading and unloading speeds are set in the settings (60 and 60 by default), fluids are loaded instantly
-  and counted in litres, fuel is counted separately.
+  and counted in litres, fuel is counted separately. When one train cannot load and unload fast enough, the number of
+  trains is calculated (each loads at its own station) and the amount per trip is shown for one train.
 - **Recipe groups.** A byproduct that a tab further down the chain returns (for example the rejects of a hydrocyclone
   that eats the group's item) goes entirely to the group member that recycles it, rounded up to whole machines; the
   other members cover the rest. Stages with no solid inputs are cut into groups by the output belt, and next to
