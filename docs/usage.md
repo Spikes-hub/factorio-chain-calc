@@ -28,7 +28,14 @@
    counts everything it consists of and builds a requester chest for it. The same tab has the "Assemble everything"
    mall: an assembler for every building recipe with a request chest and a supply chest; the whole mall is also
    given in parts, because the game's import window does not accept very long strings.
-10. **Save** the chain to continue later.
+10. **Trains** (optional, the [Train ETA](https://github.com/Spikes-hub/factorio-train-eta) mod): tick *I use the mod*
+    in the settings, and a *Train* section appears above the beacons. For every resource of the tab enter the travel
+    time from the mod (min:sec, one way; the round trip is counted as x2) and get how much to carry per trip so
+    the block does not stand idle (+30% reserve). Loading and unloading speeds are set in the settings, fluids are
+    loaded instantly, fuel is counted separately; when one train is too slow to load, the number of trains is shown.
+11. **Group size or number of groups**: in the stage card type the machines per group or the number of groups and
+    press Enter (the two fields clear each other).
+12. **Save** the chain to continue later.
 
 Tips: *Settings* has "only researched recipes" (save dumps only), the language switch is **EN | RU** in the
 corner, the ☾/☀ button toggles the theme.
