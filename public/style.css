@@ -1,4 +1,5 @@
 :root {
+  --border: var(--line);
   --bg: #eef0f2;
   --panel: #ffffff;
   --panel-2: #f3f4f6;
@@ -19,6 +20,7 @@
 
 /* ---------- dark theme: the same variables, other values (see js/theme.js) ---------- */
 :root[data-theme="dark"] {
+  --border: var(--line);
   color-scheme: dark;
   --bg: #14171a;
   --panel: #1d2126;
@@ -121,7 +123,21 @@ html, body {
 .cabinetNewCode .codeValue { font-family: var(--mono); font-size: 17px; color: var(--accent); letter-spacing: 0.1em; }
 .cabinetDatasets { display: flex; flex-direction: column; gap: 6px; }
 .cabinetDatasetRow { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
-.settingsSubhead { margin: 18px 0 8px; font-size: 14px; color: var(--text); }
+.settingsSubhead { margin: 0 0 10px; font-size: 14px; color: var(--text); }
+/* страница настроек: каждая группа — своя карточка, а не общая куча */
+.settingsCard { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 14px 16px; margin: 14px 0; }
+.settingsCard .settingsSubhead { margin: 0 0 10px; }
+.settingsCard .recipeFilterRow { margin-top: 0; font-size: 13px; color: var(--text); }
+.settingsCard > .hint { margin: 8px 0 0; }
+.settingsLinks { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+.settingsLink { display: inline-block; padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px;
+  font-size: 12px; color: var(--accent); text-decoration: none; background: var(--panel-2); }
+.settingsLink:hover { border-color: var(--accent); }
+.settingsFields { display: flex; gap: 20px; flex-wrap: wrap; margin: 12px 0 4px; }
+.settingsField { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.settingsField .input { width: 84px; text-align: center; }
+.settingsUnit { color: var(--text-dim); font-size: 12px; }
+.trainModName { color: var(--text-dim); font-weight: 400; }
 
 .btn {
   border: 1px solid var(--line);

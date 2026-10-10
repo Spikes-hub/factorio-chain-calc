@@ -193,90 +193,110 @@
           <p class="hint">
             Настройки общие для всей страницы — они не привязаны к выбранному датасету и переживают перезагрузку.
           </p>
-          <label class="recipeFilterRow"
-                 title="Работает только с дампом из сохранения: он знает, что изучено именно у тебя (unlocked_now). Полный дамп игры этого не знает — там только прототипы.">
-            <input type="checkbox" id="settingsOnlyUnlocked" /> везде показывать только изученные рецепты
-            <span class="hint" id="settingsOnlyUnlockedHint"></span>
-          </label>
-          <p class="hint">
-            На вкладке «Поиск рецепта» есть своя такая же галочка. Когда эта настройка включена, она там
-            тоже включается; но снять её на «Поиске рецепта» можно — тогда он найдёт и неизученные
-            рецепты. На «Расчёт» это не влияет: расчёт смотрит только сюда.
-          </p>
 
-          <h3 class="settingsSubhead">Вид страницы</h3>
-          <label class="recipeFilterRow"
-                 title="Прячет длинные пояснения: абзацы под заголовками, подсказки у лент и пояснительные врезки в карточках этапов. Цифры, кнопки и поля ввода остаются на месте.">
-            <input type="checkbox" id="settingsHideHints" /> убирать описания (оставить только цифры)
-          </label>
-          <p class="hint">
-            Страница становится короткой: пояснения не мешают, а всё, что нужно посчитать, остаётся
-            видно. Настройка общая для страницы и переживает перезагрузку.
-          </p>
-
-          <h3 class="settingsSubhead">Поезда</h3>
-          <label class="recipeFilterRow"
-                 title="Включает раздел «Поезд» над «Маяками»: время в пути, снятое модом, превращается в число предметов за рейс.">
-            <input type="checkbox" id="settingsTrainMod" /> я использую мод
-            <b>Train ETA</b>
-          </label>
-          <p class="hint">
-            Мод считает, сколько едет поезд между двумя точками.
-            <a href="https://github.com/Spikes-hub/factorio-train-eta" target="_blank" rel="noopener">GitHub</a> ·
-            <a href="https://mods.factorio.com/mod/train-eta" target="_blank" rel="noopener">мод на сайте Factorio</a>.
-            Если галочка стоит, над «Маяками» появляется раздел «Поезд»: для каждого ресурса вкладки вводишь время в
-            пути (мин:сек, в одну сторону), а калькулятор считает, сколько везти за рейс, чтобы блок не простаивал.
-          </p>
-          <div class="trainSpeeds">
-            <label>скорость погрузки, шт/сек
-              <input type="text" inputmode="decimal" id="settingsTrainLoad" class="feedGroupInput" /></label>
-            <label>скорость разгрузки, шт/сек
-              <input type="text" inputmode="decimal" id="settingsTrainUnload" class="feedGroupInput" /></label>
-          </div>
-          <p class="hint">
-            По умолчанию 60 и 60. Жидкости грузятся и разгружаются мгновенно — для них скорость не нужна.
-          </p>
-
-          <h3 class="settingsSubhead">Блюпринты</h3>
-          <div class="pipePick" id="settingsPipePick">
-            <span class="pipePickLabel">Труба для блюпринтов:</span>
-            <button type="button" class="btn pipePickBtn" id="pipePickBtn" aria-haspopup="listbox" aria-expanded="false"></button>
-            <div class="pipePickList hidden" id="pipePickList" role="listbox"></div>
-            <span class="hint" id="pipePickHint"></span>
-          </div>
-          <p class="hint">
-            Этой трубой и её подземной парой генератор проводит жидкости к заводам. В дампе из сохранения
-            в списке только изученные трубы, в полном дампе — все. Труба особого типа (ниобиевая,
-            многоцелевая) подходит только к портам своей категории: к остальным генератор её не ставит
-            и пишет об этом в замечаниях.
-          </p>
-
-          <h3 class="settingsSubhead">Кабинет</h3>
-          <div class="cabinetBox">
-            <div class="cabinetRow">
-              <span id="cabinetInfo" class="cabinetInfo"></span>
-              <button id="rotateCodeBtn" class="btn btn-ghost"
-                      title="Старый код сразу перестанет работать, а входы на других устройствах закроются">Сменить код</button>
-              <button id="logoutBtn2" class="btn btn-ghost">Выйти</button>
-            </div>
-            <div id="cabinetNewCode" class="cabinetNewCode hidden"></div>
+          <section class="settingsCard">
+            <h3 class="settingsSubhead">Рецепты</h3>
+            <label class="recipeFilterRow"
+                   title="Работает только с дампом из сохранения: он знает, что изучено именно у тебя (unlocked_now). Полный дамп игры этого не знает — там только прототипы.">
+              <input type="checkbox" id="settingsOnlyUnlocked" /> везде показывать только изученные рецепты
+              <span class="hint" id="settingsOnlyUnlockedHint"></span>
+            </label>
             <p class="hint">
-              Код — это и логин, и пароль. На сервере лежит только его отпечаток, поэтому посмотреть код
-              заново нельзя: если потерял — жми «Сменить код» и сохрани новый.
+              На вкладке «Поиск рецепта» есть своя такая же галочка. Когда эта настройка включена, она там
+              тоже включается; но снять её на «Поиске рецепта» можно — тогда он найдёт и неизученные
+              рецепты. На «Расчёт» это не влияет: расчёт смотрит только сюда.
             </p>
-          </div>
+          </section>
 
-          <h3 class="settingsSubhead">Дамп и иконки на сервере</h3>
-          <p class="hint">
-            Дамп, иконки и геометрия построек лежат в папке твоего кабинета на этом сервере: страница
-            берёт их оттуда. Отправить их со своего компьютера можно батником
-            <b>«отправить дамп на сервер.bat»</b> — он упакует свежий дамп из <code>data/datasets</code>,
-            иконки из <code>public/icons</code> и геометрию из <code>data/geometry</code> в один архив и
-            пришлёт его сюда по твоему коду.
-          </p>
-          <div class="cabinetUpload">
-            <div id="cabinetDatasets" class="cabinetDatasets"></div>
-          </div>
+          <section class="settingsCard">
+            <h3 class="settingsSubhead">Вид страницы</h3>
+            <label class="recipeFilterRow"
+                   title="Прячет длинные пояснения: абзацы под заголовками, подсказки у лент и пояснительные врезки в карточках этапов. Цифры, кнопки и поля ввода остаются на месте.">
+              <input type="checkbox" id="settingsHideHints" /> убирать описания (оставить только цифры)
+            </label>
+            <p class="hint">
+              Страница становится короткой: пояснения не мешают, а всё, что нужно посчитать, остаётся
+              видно. Настройка общая для страницы и переживает перезагрузку.
+            </p>
+          </section>
+
+          <section class="settingsCard" id="settingsTrainCard">
+            <h3 class="settingsSubhead">Поезда — мод Train ETA</h3>
+            <label class="recipeFilterRow"
+                   title="Включает раздел «Поезд» над «Маяками»: время в пути, снятое модом, превращается в число предметов за рейс.">
+              <input type="checkbox" id="settingsTrainMod" /> я использую мод <b>Train ETA</b>
+              <span class="trainModName">(считает, сколько едет поезд между двумя точками)</span>
+            </label>
+            <div class="settingsLinks">
+              <a class="settingsLink" href="https://github.com/Spikes-hub/factorio-train-eta" target="_blank" rel="noopener">GitHub</a>
+              <a class="settingsLink" href="https://mods.factorio.com/mod/train-eta" target="_blank" rel="noopener">Мод на сайте Factorio</a>
+            </div>
+            <div class="settingsFields">
+              <label class="settingsField">
+                <span>Скорость погрузки</span>
+                <input type="text" inputmode="decimal" id="settingsTrainLoad" class="input" autocomplete="off" />
+                <span class="settingsUnit">шт/сек</span>
+              </label>
+              <label class="settingsField">
+                <span>Скорость разгрузки</span>
+                <input type="text" inputmode="decimal" id="settingsTrainUnload" class="input" autocomplete="off" />
+                <span class="settingsUnit">шт/сек</span>
+              </label>
+            </div>
+            <p class="hint">
+              Если галочка стоит, над «Маяками» появляется раздел «Поезд»: для каждого ресурса вкладки вводишь
+              время в пути (мин:сек, в одну сторону), а калькулятор считает, сколько везти за рейс, чтобы блок
+              не простаивал. Скорости по умолчанию 60 и 60; жидкости грузятся и разгружаются мгновенно — для них
+              скорость не нужна. Число меняется сразу после ввода (Enter или переход в другое поле).
+            </p>
+          </section>
+
+          <section class="settingsCard">
+            <h3 class="settingsSubhead">Блюпринты</h3>
+            <div class="pipePick" id="settingsPipePick">
+              <span class="pipePickLabel">Труба для блюпринтов:</span>
+              <button type="button" class="btn pipePickBtn" id="pipePickBtn" aria-haspopup="listbox" aria-expanded="false"></button>
+              <div class="pipePickList hidden" id="pipePickList" role="listbox"></div>
+              <span class="hint" id="pipePickHint"></span>
+            </div>
+            <p class="hint">
+              Этой трубой и её подземной парой генератор проводит жидкости к заводам. В дампе из сохранения
+              в списке только изученные трубы, в полном дампе — все. Труба особого типа (ниобиевая,
+              многоцелевая) подходит только к портам своей категории: к остальным генератор её не ставит
+              и пишет об этом в замечаниях.
+            </p>
+          </section>
+
+          <section class="settingsCard">
+            <h3 class="settingsSubhead">Кабинет</h3>
+            <div class="cabinetBox">
+              <div class="cabinetRow">
+                <span id="cabinetInfo" class="cabinetInfo"></span>
+                <button id="rotateCodeBtn" class="btn btn-ghost"
+                        title="Старый код сразу перестанет работать, а входы на других устройствах закроются">Сменить код</button>
+                <button id="logoutBtn2" class="btn btn-ghost">Выйти</button>
+              </div>
+              <div id="cabinetNewCode" class="cabinetNewCode hidden"></div>
+              <p class="hint">
+                Код — это и логин, и пароль. На сервере лежит только его отпечаток, поэтому посмотреть код
+                заново нельзя: если потерял — жми «Сменить код» и сохрани новый.
+              </p>
+            </div>
+          </section>
+
+          <section class="settingsCard">
+            <h3 class="settingsSubhead">Дамп и иконки на сервере</h3>
+            <p class="hint">
+              Дамп, иконки и геометрия построек лежат в папке твоего кабинета на этом сервере: страница
+              берёт их оттуда. Отправить их со своего компьютера можно батником
+              <b>«отправить дамп на сервер.bat»</b> — он упакует свежий дамп из <code>data/datasets</code>,
+              иконки из <code>public/icons</code> и геометрию из <code>data/geometry</code> в один архив и
+              пришлёт его сюда по твоему коду.
+            </p>
+            <div class="cabinetUpload">
+              <div id="cabinetDatasets" class="cabinetDatasets"></div>
+            </div>
+          </section>
         </div>
 
         <div id="calcView" class="view">

@@ -4,21 +4,35 @@
 
 All notable changes are listed here, newest first. Format: version — date.
 
-## Unreleased
+## 0.2.0 — 2026-10-10
 
-- Blueprints: the generator now lays pipes and underground pipes for fluid inputs and outputs, supports machines with fluid fuel (turned so the fuel port faces a pipe), several layouts learned from hand-built templates (casting with a loader, acetylene, bitumen, creosote, glassworks, distillator, mirrored pairs with a one-tile gap) and a preview of the layout. A recipe whose machine has no layout sample yet is refused with "no pipe layout sample" instead of a guess; clear the *pipes* checkbox to get the block without pipes. **Make a new dump** after updating: the fuel input of fluid-fuel machines is read from the geometry.
-- Blueprints: machines can be placed mirrored (the `mirror` flag of Factorio 2.0), which lets both columns of a block have their ports on the same rows; the pipe check follows the game rules strictly (an underground pipe connects only by its mouth, to the nearest pair) and a block whose pipes would mix two fluids of one machine is refused instead of produced; the port order prefers the opposite wall before ports that look along the wall; machines with ports in the centre of all four walls (heat exchanger) get a one-tile gap between every two machines with the fluids passing through the gaps.
-- Stages with no solid inputs (raw material only by pipes) are cut into groups by the output belt, and the manual "machines in a group" field is shown for them too.
-- Train ETA mod support: tick "I use the mod" in the settings (name, GitHub and mod portal links are there) and a "Train" section appears above the beacons. Enter the travel time (min:sec, one way, the round trip is counted as x2) for each resource of the tab and get how much to carry per trip so that the block does not stand idle, with a +30% reserve; loading and unloading speeds are set in the settings (60 and 60 by default), fluids are loaded instantly and counted in litres, fuel is counted separately.
-- Next to "machines in a group" there is a "groups" field: type the number of groups and the machines are split evenly (typing one of the two fields clears the other; the number is limited by the machines of the stage).
-- Machines whose only fluid input passes through (soil extractor: two opposite input-output mouths) are stacked in a column without gaps; the fluid is brought only to the top machine and passes through the rest.
-- Recipe search and the "How to get" window show the machine a recipe is made in, right under the recipe name.
-- `start.bat`: Ctrl+C stops the server without the "Terminate batch job (Y/N)?" question.
-- Dropdowns (machines, fuel, beacons, stages, saved chains) show icons; ash from burnt fuel gets its own output belt.
-- Documented the game version the dump was checked with: Factorio 2.0.77 (Pyanodon set, mod versions in the README).
-- Recipe groups: a byproduct that a tab further down the chain returns (for example the rejects of a hydrocyclone that eats the group's item) now goes entirely to the group member that recycles it, rounded up to whole machines; the other members cover the rest. The loop is searched along the whole chain towards the head tab.
-- Feed lines show the stage total next to the per-group rate when there are several feed groups.
-- Recipes with the same name are told apart by their inputs ("— from: ...") in the recipe picker, tab hints and the group summary, instead of the internal id.
+### Major changes
+
+- **Pipes in blueprints.** The block generator now lays pipes and underground pipes for fluid inputs and outputs,
+  supports machines with fluid fuel, and builds the layouts learned from hand-built templates (casting with a loader,
+  acetylene, bitumen, creosote, glassworks, distillator, heat exchanger, fluidized bed reactor, mirrored pairs with a
+  one-tile gap). A layout diagram is shown before you copy the string. A recipe whose machine has no layout sample yet
+  is refused with a clear message instead of a guess: clear the *pipes* checkbox to get the block without pipes.
+  Recipes the generator cannot build dropped from 215 to 67.
+  **Make a new dump** after updating: the fuel input of fluid-fuel machines is read from the building geometry.
+- **Mirrored machines and a stricter pipe check.** Machines can be placed mirrored (the `mirror` flag of Factorio 2.0),
+  an underground pipe connects only by its mouth and to the nearest pair, as in the game, and a block whose pipes
+  would mix two fluids of one machine is refused instead of produced. Machines with ports in the centre of all four
+  walls get a one-tile gap between machines; a single pass-through fluid input (soil extractor) is fed to the top
+  machine of a column only.
+- **Train ETA mod support.** Tick "I use the mod" in the settings (name, GitHub and mod portal links are there) and a
+  *Train* section appears above the beacons: enter the travel time (min:sec, one way, the round trip is counted as x2)
+  for each resource of the tab and get how much to carry per trip so that the block does not stand idle, with a +30%
+  reserve. Loading and unloading speeds are set in the settings (60 and 60 by default), fluids are loaded instantly
+  and counted in litres, fuel is counted separately.
+- **Recipe groups.** A byproduct that a tab further down the chain returns (for example the rejects of a hydrocyclone
+  that eats the group's item) goes entirely to the group member that recycles it, rounded up to whole machines; the
+  other members cover the rest. Stages with no solid inputs are cut into groups by the output belt, and next to
+  "machines in a group" there is a new "groups" field (the two fields clear each other).
+
+### Minor changes
+
+- Fixed minor bugs and polished the interface.
 
 ## 0.1.0 — 2026-10-06
 
