@@ -9045,7 +9045,10 @@
       const nodesAtDepth = Object.values(result.nodes).filter((n) => depths.get(n.id) === depth);
       if (!nodesAtDepth.length) continue;
       const stageNum = maxDepth - depth + 1;
-      html += `<div class="stageGroup"><div class="stageTitle">Этап ${stageNum}${depth === 0 ? " · конечный продукт" : ""}</div><div class="stageCards">`;
+      // У цепочки из одного этапа подпись «Этап 1 · конечный продукт» ничего не говорит — её нет
+      const stageTitle =
+        maxDepth === 0 ? "" : `<div class="stageTitle">Этап ${stageNum}${depth === 0 ? " · конечный продукт" : ""}</div>`;
+      html += `<div class="stageGroup">${stageTitle}<div class="stageCards">`;
       for (const n of nodesAtDepth) {
         const recipe = state.dataset.recipes[n.recipeName];
         const treeNode = findTreeNodeById(state.cascade.root, n.id);
@@ -9097,23 +9100,7 @@
         if (treeNodeForEffects) ensureNodeEffects(treeNodeForEffects);
         const eff = (treeNodeForEffects && treeNodeForEffects.effects) || {};
         const man = (treeNodeForEffects && treeNodeForEffects.manualEffects) || {};
-        const allowsProd = recipe && recipe.allow_productivity;
         const modulesHtml = treeNodeForEffects ? modulesBlockHTML(treeNodeForEffects, machine, recipe, eff) : "";
-        const effectsHtml = `
-            <div class="stageEffectsLabel">Дополнительно вручную (маяки и т.п.):</div>
-            <div class="stageEffects">
-              <label title="Бонус скорости сверх модулей (маяки), %"><input type="number" class="effSpeed" data-node="${n.id}" step="10" value="${Math.round(
-          (man.speed || 0) * 100
-        )}" />% скор</label>
-              <label title="${
-                allowsProd ? "Бонус продуктивности сверх модулей, % (влияет только на выход)" : "Этот рецепт не принимает продуктивность"
-              }"><input type="number" class="effProd" data-node="${n.id}" step="10" value="${Math.round((man.productivity || 0) * 100)}" ${
-          allowsProd ? "" : "disabled"
-        } />% прод</label>
-              <label title="Доп. энергопотребление сверх модулей, % — у топливных заводов напрямую увеличивает расход топлива и пепла"><input type="number" class="effCons" data-node="${
-                n.id
-              }" step="10" value="${Math.round((man.consumption || 0) * 100)}" />% энерг</label>
-            </div>`;
         // Кнопка «Приоритет» ставится только у той стороны, которая вообще есть:
         // у этапа без твёрдого входа (или выхода) согласовывать нечего.
         const hasSolidInputs = Object.keys(stageSolidInputs(n, treeNodeForEffects || state.cascade.root)).length > 0;
@@ -9125,9 +9112,7 @@
             ${machineCraftNoteHTML(n.id, n.recipeName, n.machineName)}
             ${fuelSelectHtml}
             ${modulesHtml}
-            ${effectsHtml}
             <div class="stageCardStats">
-              <span>циклов/с: <b>${n.craftsPerSecond.toFixed(3)}</b></span>
               <span>заводов: <input type="number" min="1" step="1" class="machinesInput" data-node="${n.id}" value="${n.machinesCeil}" style="width:72px;" /> <span class="hint">(${n.machines.toFixed(2)})</span>
                 <button type="button" class="btn btn-ghost recalcNodeBtn" data-node="${n.id}" title="Пересчитать цепочку, масштабируя так, чтобы заданное число заводов стало текущим">Пересчитать</button>
                 <button type="button" class="btn btn-ghost blueprintBtn" data-node="${n.id}" title="Собрать блюпринт блока: заводы в ряд, ленты подачи снаружи, лента выгрузки между столбцами. Куда едет выгрузка — настройка «Лента выхода» в панели чертежа (в одну сторону с подачей или в другую). Трубы не ставятся — тайлы под газ и жидкость остаются свободными.">Блюпринт</button>
