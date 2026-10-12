@@ -107,6 +107,16 @@
   function saveCurrentTabSnapshot() {
     const tab = calcTabs[activeTabIndex];
     if (!tab) return;
+    // Пока идёт пересчёт других вкладок (recalcDescendantTabs, redistributeGroup,
+    // settleNetTarget), в state временно лежат данные ДРУГОЙ вкладки — тот же объект,
+    // что в её снимке. Если в этот момент что-то сохранит «текущую» вкладку (сохранение
+    // цепочки, переключение вкладки), чужой каскад окажется под двумя id сразу и при
+    // следующем сохранении вкладки перепутаются. Чужой объект под своим id не пишем.
+    for (const other of calcTabs) {
+      if (other.id === tab.id) continue;
+      const snap = tabSnapshots[other.id];
+      if (snap && snap.cascade && snap.cascade === state.cascade) return;
+    }
     tabSnapshots[tab.id] = {
       cascade: state.cascade,
       lastResult: state.lastResult,
