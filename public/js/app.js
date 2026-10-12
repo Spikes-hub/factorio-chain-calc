@@ -6405,7 +6405,7 @@
       const dev = chosenInserter(nodeId, side, s);
       if (dev) total += streamInserterCount(s, dev.throughput);
     }
-    return `${html}<div class="inserterRow inserterRowTotal"><span class="hint">Итого на 1 завод: <b>${total}</b> — по потоку на каждую входную ленту.</span></div>`;
+    return `${html}<div class="inserterRow inserterRowTotal"><span class="hint">Итого на 1 завод: <b>${total}</b><span class="inserterWhy"> — по потоку на каждую входную ленту.</span></span></div>`;
   }
 
   /** name = "__auto__" возвращает автоматический выбор (или убирает выбор для

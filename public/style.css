@@ -345,6 +345,11 @@ body.hideHints p.hint:not(.msg),
 body.hideHints .modeHint,
 body.hideHints .beltStripHint,
 body.hideHints .beltGroupNote { display: none !important; }
+/* подробности про манипуляторы: сколько несёт, на один завод, «пара по краям ленты…», погрузчик; число манипуляторов
+   у кнопки выбора и итог «на 1 завод: N» остаются */
+body.hideHints .inserterRow:not(.inserterRowTotal) .hint,
+body.hideHints .inserterWhy,
+body.hideHints .inserterPickerNote { display: none !important; }
 .view.hidden { display: none; }
 
 .rateTag { font-family: var(--mono); font-size: 11px; color: var(--teal); }
