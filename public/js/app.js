@@ -1050,6 +1050,38 @@
     document.getElementById("ungroupBtn").addEventListener("click", () => safeCall(() => ungroupTab(groupId)));
   }
 
+  /** Переставить вкладку (или всю её группу) перед/после вкладки `targetId`.
+   *
+   *  Главная (первая) вкладка остаётся первой: её нельзя ни двигать (в том числе вместе с её группой), ни
+   *  обгонять — перед ней вставки нет. Если тянут вкладку группы, едет вся группа целиком, а вставка рядом с
+   *  вкладкой чужой группы идёт до или после ВСЕЙ этой группы, чтобы не разрезать её.
+   *  Возвращает true, если порядок изменился. */
+  function moveTabBlock(draggedId, targetId, placeAfter) {
+    const dragged = calcTabs.find((t) => t.id === draggedId);
+    const target = calcTabs.find((t) => t.id === targetId);
+    if (!dragged || !target || dragged.id === target.id || calcTabs.length < 2) return false;
+    const blockOf = (t) => (t.groupId ? calcTabs.filter((x) => x.groupId === t.groupId) : [t]);
+    const moving = blockOf(dragged);
+    const movingIds = new Set(moving.map((t) => t.id));
+    if (movingIds.has(calcTabs[0].id) || movingIds.has(target.id)) return false;
+    if (target.id === calcTabs[0].id && !placeAfter) return false;   // перед главной вставки нет
+    const activeId = calcTabs[activeTabIndex] && calcTabs[activeTabIndex].id;
+    const rest = calcTabs.filter((t) => !movingIds.has(t.id));
+    const targetIds = new Set(blockOf(target).map((t) => t.id));
+    const positions = rest.map((t, i) => (targetIds.has(t.id) ? i : -1)).filter((i) => i >= 0);
+    if (!positions.length) return false;
+    let at = placeAfter ? Math.max(...positions) + 1 : Math.min(...positions);
+    if (at < 1) at = 1;                       // перед главной вкладкой вставки нет
+    const before = calcTabs.map((t) => t.id).join(",");
+    rest.splice(at, 0, ...moving);
+    if (rest.map((t) => t.id).join(",") === before) return false;
+    calcTabs.splice(0, calcTabs.length, ...rest);
+    const keep = calcTabs.findIndex((t) => t.id === activeId);
+    activeTabIndex = keep >= 0 ? keep : 0;
+    state.dirty = true;
+    return true;
+  }
+
   function renderCalcTabBar() {
     const bar = document.getElementById("calcTabBar");
     if (!bar) return;
@@ -1081,16 +1113,36 @@
         safeCall(() => switchToTab(idx));
       });
       div.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", tab.id));
+      // Край вкладки — переставить (левая треть: перед, правая: после), середина — объединить в группу.
+      // Перед главной (первой) вкладкой вставить нельзя: она остаётся первой.
+      const zoneOf = (e) => {
+        if (typeof div.getBoundingClientRect !== "function" || typeof e.clientX !== "number") return "group";
+        const rect = div.getBoundingClientRect();
+        if (!rect.width) return "group";
+        const rel = (e.clientX - rect.left) / rect.width;
+        if (rel < 0.3) return idx === 0 ? "group" : "before";
+        if (rel > 0.7) return "after";
+        return "group";
+      };
+      const clearMarks = () => div.classList.remove("dragOver", "dragBefore", "dragAfter");
       div.addEventListener("dragover", (e) => {
         e.preventDefault();
-        div.classList.add("dragOver");
+        clearMarks();
+        const zone = zoneOf(e);
+        div.classList.add(zone === "before" ? "dragBefore" : zone === "after" ? "dragAfter" : "dragOver");
       });
-      div.addEventListener("dragleave", () => div.classList.remove("dragOver"));
+      div.addEventListener("dragleave", clearMarks);
       div.addEventListener("drop", (e) => {
         e.preventDefault();
-        div.classList.remove("dragOver");
+        const zone = zoneOf(e);
+        clearMarks();
         const draggedId = e.dataTransfer.getData("text/plain");
-        if (draggedId) safeCall(() => groupTabs(draggedId, tab.id));
+        if (!draggedId) return;
+        if (zone === "group") safeCall(() => groupTabs(draggedId, tab.id));
+        else if (moveTabBlock(draggedId, tab.id, zone === "after")) {
+          renderCalcTabBar();
+          renderResults();
+        }
       });
       bar.appendChild(div);
     });
@@ -12836,6 +12888,7 @@
     repairTabParentLinks,
     tabNeedForItem,
     saveCurrentTabSnapshot,
+    moveTabBlock,
     settleChainNet,
     settleNetTarget,
     chainItemFlow,

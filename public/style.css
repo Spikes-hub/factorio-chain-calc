@@ -855,6 +855,8 @@ table.resultTable th { color: var(--text-dim); font-weight: 500; text-transform:
 
 .calcTab.grouped { border-color: var(--teal); }
 .calcTab.dragOver { border-color: var(--accent); background: rgba(217,105,31,0.15); }
+.calcTab.dragBefore { box-shadow: -4px 0 0 0 var(--accent); }
+.calcTab.dragAfter { box-shadow: 4px 0 0 0 var(--accent); }
 .groupSummaryPanel { margin-bottom: 16px; }
 .groupMembers { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .groupMemberRow { font-family: var(--mono); font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }

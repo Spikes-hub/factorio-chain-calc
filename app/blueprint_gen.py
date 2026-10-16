@@ -1464,7 +1464,7 @@ def _flip_vertical(orientation: int) -> int:
 
 
 def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int, uniform: bool = False,
-                drop_wall: int | None = None) -> dict | None:
+                drop_wall: int | None = None, want: list | None = None, all_options: bool = False):
     """Столбец парами с зазором: верхний завод смотрит устьем жидкости вниз, нижний — вверх, между ними зазор.
 
     Для жидкости, чей порт стоит по центру стенки и смотрит вдоль столбца (шаблон «Фабрика наноматериалов»):
@@ -1482,6 +1482,7 @@ def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int, unifo
     inputs_f, outputs_f = recipe_fluids(spec.recipe, spec.dataset_id, spec.machine, geometry)
     fluids = [("input", f) for f in inputs_f] + [("output", f) for f in outputs_f]
     allowed = allowed_rotations(spec.machine, geometry)
+    found: list = []        # (несовпадений со стенами, раскладка): при зазоре в каждой паре берём лучшую, а не первую
     for r_a in allowed:
         rot_a, mirrored_a = _unmirror(r_a)
         partners = [(rot_a + 8) % 16 + (MIRROR if mirrored_a else 0)]      # тот же завод, повёрнутый на 180°
@@ -1536,6 +1537,8 @@ def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int, unifo
                                     options.append(((pa, fa), (pb, fb)))
             for gap_a, gap_b in options:
                 gaps_used = [g for g in (gap_a, gap_b) if g]
+                if want is not None and [(g[1], g[0]["box"]) for g in gaps_used] != want:
+                    continue
                 gap_boxes = {g[0]["box"] for g in gaps_used}
                 gap_fluids = {g[1] for g in gaps_used}
                 others = {r: [f for rl, f in fluids if rl == r and (rl, f) not in gap_fluids]
@@ -1564,6 +1567,10 @@ def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int, unifo
                     chosen[direction] = picked
                 if not good:
                     continue
+                # не-зазорные жидкости, чей порт смотрит не на «свою» стену (вход — наружу, выход — в коридор): им
+                # нужны стволы в середине коридора. Из вариантов с зазором в каждой паре берём с наименьшим их числом
+                mismatch = sum(1 for direction in (r_a, r_b) for p in chosen[direction]
+                               if p["direction"] != walls[p["production"]])
                 directions = [r_a if i % 2 == 0 else r_b for i in range(count)]
                 if uniform:
                     offsets = [1 + i * (h + 1) for i in range(count)]
@@ -1611,10 +1618,21 @@ def _gap_column(spec: BlockSpec, geometry: dict, count: int, wall_in: int, unifo
                         if index % 2 == 0:                        # верхний завод пары (или одиночный последний)
                             rows.append((top + h, gap_a[0]["dx"]))
                     gaps.append({"key": gap_a[1], "box": gap_a[0]["box"], "rows": rows, "dx": gap_a[0]["dx"]})
-                return {"rotation": {"direction": r_a, "inputs": [], "outputs": [], "note": ""},
-                        "direction": r_a, "directions": directions, "offsets": offsets, "reserved": reserved,
-                        "ports": ports_out, "all_ports": all_ports, "used_ports": used_ports,
-                        "gap": gaps[0], "gaps": gaps, "uniform": uniform}
+                result = {"rotation": {"direction": r_a, "inputs": [], "outputs": [], "note": ""},
+                          "direction": r_a, "directions": directions, "offsets": offsets, "reserved": reserved,
+                          "ports": ports_out, "all_ports": all_ports, "used_ports": used_ports,
+                          "gap": gaps[0], "gaps": gaps, "uniform": uniform, "mismatch": mismatch}
+                if not uniform:
+                    return result
+                # при равном числе несовпадений в зазоры лучше отдать более поздние жидкости рецепта: первые (давление,
+                # основной выход) идут по стенам, как в образце «Газ угольного пласта»
+                later = sum(inputs_f.index(g[1][1]) if g[1][0] == "input" else outputs_f.index(g[1][1])
+                            for g in gaps_used)
+                found.append((mismatch, -later, len(found), result))
+    if all_options:
+        return [item[3] for item in sorted(found, key=lambda item: item[:3])]
+    if found:
+        return min(found, key=lambda item: item[:3])[3]
     return None
 
 
@@ -1728,6 +1746,102 @@ def occupied_tiles(entities: list, geometry: dict | None = None,
         left, top, w, h = tile
         out.update((left + dx, top + dy) for dx in range(w) for dy in range(h))
     return out
+
+
+def fluid_feed_notes(entities: list, geom: dict, used: list, spec: BlockSpec) -> list[str]:
+    """Что куда подавать: по строке на каждую сеть труб — жидкость, роль, где труба и куда подводить.
+
+    Заводы сопоставляются с жидкостями по журналу `used` (какой бокс какой жидкости отдан), сети берутся из того же
+    разбора труб, что и проверка блока. Места описаны относительно столбцов заводов: цепочка у стенки завода,
+    ствол за лентой подачи, общая линия в коридоре между столбцами."""
+    if not used:
+        return []
+    obj = {"blueprint": {"entities": entities}}
+    report = bp.pipe_network_report(obj, geom)
+    mapping = {(x, y, box): key for x, y, box, key in used}
+    nets: dict = {}
+    for conn in report["connections"]:
+        net = conn.get("net")
+        key = mapping.get((conn["origin"][0], conn["origin"][1], conn["box"]))
+        if net is None or key is None:
+            continue
+        info = nets.setdefault(net, {"keys": {}, "machines": set()})
+        info["keys"][key] = info["keys"].get(key, 0) + 1
+        info["machines"].add(tuple(conn["origin"]))
+    machines = [bp.tiles_of(e, geom) for e in entities if e.get("name") == spec.machine and bp.tiles_of(e, geom)]
+    if not machines or not nets:
+        return []
+    xs = sorted({m[0] for m in machines})
+    columns = [(x, x + machines[0][2] - 1) for x in xs]
+    left_x0, left_x1 = columns[0]
+    right_x0, right_x1 = columns[-1]
+    two_columns = len(columns) > 1 and right_x0 > left_x1
+    names: dict = {}
+    path = dataset_path(spec.dataset_id)
+    if path:
+        names = (_dataset(path).get("fluids") or {})
+
+    def label(fluid: str) -> str:
+        row = names.get(fluid)
+        shown = row.get("display_name") if isinstance(row, dict) else None
+        return f"«{shown}» ({fluid})" if shown and shown != fluid else f"«{fluid}»"
+
+    lines: list = []
+    order = sorted(nets.items(), key=lambda item: (item[1]["keys"] and sorted(item[1]["keys"])[0][0] != "input",
+                                                  sorted(item[1]["keys"])[0][1], min(
+                                                      t[0] for t in report["components"].get(item[0], [(0, 0)]))))
+    for net, info in order:
+        tiles = report["components"].get(net) or []
+        if not tiles:
+            continue
+        (role, fluid), _count = max(info["keys"].items(), key=lambda item: item[1])
+        xs_t = [t[0] for t in tiles]
+        ys_t = [t[1] for t in tiles]
+        width = max(xs_t) - min(xs_t) + 1
+        height = max(ys_t) - min(ys_t) + 1
+        cx = (min(xs_t) + max(xs_t)) / 2
+        outer_left = [tt for tt in tiles if tt[0] < left_x0 - 1]
+        outer_right = [tt for tt in tiles if tt[0] > right_x1 + 1]
+        inside = [tt for tt in tiles if left_x0 - 1 <= tt[0] <= right_x1 + 1]
+        if (outer_left or outer_right) and inside and width > 3:
+            # сеть из труб в зазорах между заводами: наружу она выходит стволом сбоку от блока
+            trunk = outer_left or outer_right
+            side = "слева" if outer_left else "справа"
+            ty = [tt[1] for tt in trunk]
+            where = f"сеть труб в зазорах между заводами, наружу выходит стволом {side} от блока (x={trunk[0][0]})"
+            ends = (f"подводи к любой трубе ствола (y от {min(ty)} до {max(ty)})" if role == "input" else
+                    f"забирай с любой трубы ствола (y от {min(ty)} до {max(ty)})")
+        elif height >= max(3, 2 * width):
+            if two_columns and left_x1 < cx < right_x0:
+                where = "общая линия в коридоре между столбцами заводов"
+            elif cx < left_x0 - 1:
+                where = "вертикальный ствол слева от блока, за лентой подачи"
+            elif cx < left_x0 and cx >= left_x0 - 1:
+                where = "цепочка вдоль левой стенки заводов (полоса манипуляторов)"
+            elif cx > right_x1 + 1:
+                where = "вертикальный ствол справа от блока, за лентой подачи"
+            elif cx > right_x1:
+                where = "цепочка вдоль правой стенки заводов (полоса манипуляторов)"
+            elif not two_columns and cx > left_x1:
+                where = "цепочка вдоль стенки заводов"
+            else:
+                where = "вертикальная труба между заводами"
+            ends = (f"подводи к верхнему концу (y={min(ys_t)}) или нижнему (y={max(ys_t)}) — это одна сеть"
+                    if role == "input" else
+                    f"забирай с верхнего (y={min(ys_t)}) или нижнего (y={max(ys_t)}) конца")
+        elif width >= max(3, 2 * height):
+            where = "горизонтальная труба вдоль ряда заводов"
+            ends = (f"подводи к левому (x={min(xs_t)}) или правому (x={max(xs_t)}) концу — это одна сеть"
+                    if role == "input" else
+                    f"забирай с левого (x={min(xs_t)}) или правого (x={max(xs_t)}) конца")
+        else:
+            where = "сеть труб у заводов"
+            ends = ("подводи к любой её трубе у края группы" if role == "input" else "забирай с любой её трубы у края группы")
+        verb = "вход" if role == "input" else "выход"
+        lines.append(f"{label(fluid)} — {verb}: {where}; заводов на сети: {len(info['machines'])}; {ends}")
+    if not lines:
+        return []
+    return ["Что куда подавать (координаты — тайлы внутри чертежа):"] + lines
 
 
 def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> dict:
@@ -1849,12 +1963,32 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
     split_outputs = out_belt_all and not center_supply and not own_loader and len(fluid_out_all) > 1
     # Раскладка парами с зазором: рецепт, порт жидкости которого смотрит вдоль столбца (см. _gap_column)
     gap_left = gap_right = None
+    gap_want = None
+    gap_style = False
     fluid_in_eff, fluid_out_eff = fluid_in_all, fluid_out_all
     if gap_pairs:
-        if center_supply or own_loader or (self_dump and gap_pairs != 2) or not spec.pipes:
+        if own_loader or (self_dump and gap_pairs != 2) or not spec.pipes:
             raise _GapUnavailable("раскладка парами для этого блока не годится")
-        gap_left = _gap_column(spec, geom, 2, 12, uniform=gap_pairs == 2, drop_wall=4 if self_dump else None)
-        gap_right = _gap_column(spec, geom, 2, 4, uniform=gap_pairs == 2, drop_wall=12 if self_dump else None)
+        gap_left = gap_right = None
+        if gap_pairs == 2:
+            # из вариантов с зазором в каждой паре берём тот, где у не-зазорных жидкостей порты смотрят на свои стены
+            # (вход наружу, выход в коридор): в коридоре тогда одна линия, а не стволы посередине
+            best = None
+            best_list: list = []
+            for cand in _gap_column(spec, geom, 2, 12, uniform=True, drop_wall=4 if self_dump else None, all_options=True):
+                want = [(g["key"], g["box"]) for g in cand["gaps"]]
+                other = _gap_column(spec, geom, 2, 4, uniform=True, drop_wall=12 if self_dump else None, want=want)
+                if other is None:
+                    continue
+                score = (cand["mismatch"] + other["mismatch"], len(best_list))
+                best_list.append(score)
+                if best is None or score < best[0]:
+                    best = (score, cand, other, want)
+            if best is not None:
+                gap_left, gap_right, gap_want = best[1], best[2], best[3]
+        if gap_left is None and gap_right is None:
+            gap_left = _gap_column(spec, geom, 2, 12, uniform=gap_pairs == 2, drop_wall=4 if self_dump else None)
+            gap_right = _gap_column(spec, geom, 2, 4, uniform=gap_pairs == 2, drop_wall=12 if self_dump else None)
         if (not gap_left or not gap_right
                 or [g["key"] for g in gap_left["gaps"]] != [g["key"] for g in gap_right["gaps"]]
                 or [g["box"] for g in gap_left["gaps"]] != [g["box"] for g in gap_right["gaps"]]):
@@ -1863,6 +1997,18 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
         gap_boxes = {g["box"] for g in gap_left["gaps"]}
         fluid_in_eff = [f for f in fluid_in_all if ("input", f) not in gap_keys]
         fluid_out_eff = [f for f in fluid_out_all if ("output", f) not in gap_keys]
+        # Стиль образца «Газ угольного пласта»: у завода есть и жидкости в зазорах (две, по очереди), и обычные
+        # (вход цепочкой у полосы манипуляторов, выход общей линией в коридоре). Тогда зазоры соединяются
+        # подземными трубами поперёк коридора, а наружу уходят стволами по краям группы: первая жидкость
+        # зазоров — слева, вторая — справа.
+        gap_style = bool(gap_pairs == 2 and len(gap_keys) == 2 and (fluid_in_eff or fluid_out_eff))
+        # Выходные жидкости, ушедшие в зазоры, коридор не занимают: если в коридор осталась одна, лента подачи
+        # снаружи и общая труба в середине (шаблон «Коалбед»: газ в центре, вода и кислород — через зазоры).
+        if center_supply:
+            center_supply = (not out_belt_all and supply_belts_all == 1 and not input_loader_all and not own_loader
+                             and len(fluid_out_eff) >= 2)
+            if center_supply:
+                raise _GapUnavailable("раскладка парами для этого блока не годится")
     # Жидкостей, которые идут в коридор между столбцами, больше одной (и ленты там нет): лишние получают стволы
     # посередине, коридор расширяется на полосу и по три тайла на ствол.
     center_extra = 0
@@ -1913,7 +2059,7 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
             ports_right, block_pipes.EAST, fluid_in_eff, fluid_out_eff, inward_outputs=not center_supply,
             split_outputs=split_outputs)
         chain_ok = (block_pipes.chain_feasible(pitch, block_pipes._max_underground(geom, spec.pipe_ground))
-                    and not gap_pairs)               # в режиме пар цепочку занимает жидкость из зазора
+                    and not (gap_pairs and not gap_style))   # в режиме пар цепочку занимает жидкость из зазора
         west_keys = block_pipes.trunk_keys(west_keys, chain_ok)   # первая жидкость стороны идёт цепочкой у стенки
         east_keys = block_pipes.trunk_keys(east_keys, chain_ok)   # завода, ствол с краю группы нужен остальным
         if gap_pairs:
@@ -1922,8 +2068,12 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
             spacing = 2 * (h + 1) if gap_pairs == 2 else 2 * h + 1
             chain_gap = spacing - 1 <= block_pipes._max_underground(geom, spec.pipe_ground)
             trunk_gap = list(gap_keys[1:]) if chain_gap else list(gap_keys)
-            west_keys = trunk_gap + west_keys
-            east_keys = trunk_gap + east_keys
+            if gap_style:
+                west_keys = west_keys + [gap_keys[0]]
+                east_keys = east_keys + [gap_keys[1]]
+            else:
+                west_keys = trunk_gap + west_keys
+                east_keys = trunk_gap + east_keys
         if own_loader:
             east_keys = []                        # заводов только в левом столбце, справа труб нет
         pipe_w_left = block_pipes.side_width(len(west_keys))
@@ -1998,9 +2148,9 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
                 _FORCED_ORIENTATION.reset(forced_token)
         if gap_pairs:
             plan_left = _gap_column(spec, geom, left_count, 12, uniform=gap_pairs == 2,
-                                    drop_wall=4 if (out_belt and self_dump) else None)
+                                    drop_wall=4 if (out_belt and self_dump) else None, want=gap_want)
             plan_right = _gap_column(spec, geom, right_count, 4, uniform=gap_pairs == 2,
-                                     drop_wall=12 if (out_belt and self_dump) else None)
+                                     drop_wall=12 if (out_belt and self_dump) else None, want=gap_want)
         drops_on_belt = (out_belt and self_dump
                          and machine_drop_side(spec.machine, plan_left["direction"], geom) == 4
                          and machine_drop_side(spec.machine, plan_right["direction"], geom) == 12)
@@ -2363,6 +2513,9 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
         for index in range(left_count):
             top = y0 + plan_left["offsets"][index]
             machine(x_left, top, plan_left["directions"][index])
+            if gap_pairs and _USED_BOXES.get() is not None:
+                for g in plan_left["gaps"]:     # жидкости зазоров: какой бокс чем занят — нужно описанию подачи
+                    _USED_BOXES.get().append((x_left, top, g["box"], g["key"]))
             if x_left_ins is not None:
                 place_input_inserters(x_left_ins, left_in_rows[index], 12)
             if x_mid_ins_l is not None and center_supply:
@@ -2373,6 +2526,9 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
         for index in range(right_count):
             top = y0 + plan_right["offsets"][index]
             machine(x_right, top, plan_right["directions"][index])
+            if gap_pairs and _USED_BOXES.get() is not None:
+                for g in plan_right["gaps"]:     # жидкости зазоров: какой бокс чем занят — нужно описанию подачи
+                    _USED_BOXES.get().append((x_right, top, g["box"], g["key"]))
             if x_right_ins is not None:
                 place_input_inserters(x_right_ins, right_in_rows[index], 4)
             if x_mid_ins_r is not None and center_supply:
@@ -2384,17 +2540,50 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
         if gap_pairs:
             sandwich_notes.append(
                 "порт жидкости смотрит вдоль стенки: заводы стоят парами через зазор в один тайл, труба в зазоре "
-                "питает сразу два завода и по ряду зазора уходит к цепочке у полосы манипуляторов")
-            # Труба из зазора между заводами пары идёт по ряду зазора к полосе столба: там её подхватывает цепочка
-            for plan, x0, lane, side in ((plan_left, x_left, x_left - 1, block_pipes.WEST),
-                                         (plan_right, x_right, x_right + w, block_pipes.EAST)):
-                for gap in plan["gaps"]:
-                    for rel_y, dx in gap["rows"]:
+                + ("питает сразу два завода и подземными трубами уходит к другому столбцу и наружу, к стволу"
+                   if gap_style else "питает сразу два завода и по ряду зазора уходит к цепочке у полосы манипуляторов"))
+            group_box = (x_cursor, x_end, y0, y0 + height)
+            if gap_style:
+                # Труба в зазоре у порта, по обе стороны от неё — подземные: поперёк коридора к такой же трубе
+                # другого столбца (под линией коридора) и наружу к стволу с края группы (под полосой манипуляторов
+                # и лентой подачи). Так сделан образец: одна сеть на жидкость зазоров на весь блок.
+                reach = block_pipes._max_underground(geom, spec.pipe_ground)
+                left_rows = {(g["key"], ry): dx for g in plan_left["gaps"] for ry, dx in g["rows"]}
+                right_rows = {(g["key"], ry): dx for g in plan_right["gaps"] for ry, dx in g["rows"]}
+                for index, key in enumerate(gap_keys):
+                    side = block_pipes.WEST if index == 0 else block_pipes.EAST
+                    for (k, rel_y), dx in sorted(left_rows.items(), key=lambda item: item[0][1]):
+                        if k != key:
+                            continue
                         y_abs = y0 + rel_y
-                        lo, hi = (lane + 1, x0 + dx) if side == block_pipes.WEST else (x0 + dx, lane - 1)
-                        for xx in range(lo, hi + 1):
-                            put(spec.pipe, xx, y_abs)
-                        gap_extra.append(((x_cursor, x_end, y0, y0 + height), side, gap["key"], (lane, y_abs)))
+                        xl = x_left + dx
+                        put(spec.pipe, xl, y_abs)
+                        xr = None
+                        if (key, rel_y) in right_rows:
+                            xr = x_right + right_rows[(key, rel_y)]
+                            put(spec.pipe, xr, y_abs)
+                            if xr - xl - 2 <= reach and xr - xl > 2:
+                                put(spec.pipe_ground, xl + 1, y_abs, block_pipes.WEST)
+                                put(spec.pipe_ground, xr - 1, y_abs, block_pipes.EAST)
+                            elif xr - xl > 2:
+                                sandwich_notes.append(
+                                    f"труба в зазоре {key[1]}: столбцы слишком далеко для подземной трубы — "
+                                    "соедини их сам")
+                        if side == block_pipes.WEST:
+                            gap_extra.append((group_box, side, key, (xl - 1, y_abs)))
+                        elif xr is not None:
+                            gap_extra.append((group_box, side, key, (xr + 1, y_abs)))
+            else:
+                # Труба из зазора между заводами пары идёт по ряду зазора к полосе столба: там её подхватывает цепочка
+                for plan, x0, lane, side in ((plan_left, x_left, x_left - 1, block_pipes.WEST),
+                                             (plan_right, x_right, x_right + w, block_pipes.EAST)):
+                    for gap in plan["gaps"]:
+                        for rel_y, dx in gap["rows"]:
+                            y_abs = y0 + rel_y
+                            lo, hi = (lane + 1, x0 + dx) if side == block_pipes.WEST else (x0 + dx, lane - 1)
+                            for xx in range(lo, hi + 1):
+                                put(spec.pipe, xx, y_abs)
+                            gap_extra.append((group_box, side, gap["key"], (lane, y_abs)))
 
         # столбы: только для тех, кому нужно электричество, цепочкой вдоль коридоров
         if spec.pole:
@@ -2540,7 +2729,8 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
                 geometry=geom, pipe=spec.pipe, pipe_ground=spec.pipe_ground, west_only=own_loader,
                 inward_outputs=not center_supply, soft=spec.pole, center_trunks_ok=center_extra > 0,
                 split_outputs=split_outputs, used_log=_USED_BOXES.get(),
-                exclude_boxes=gap_boxes if gap_pairs else None, gap_keys=gap_keys if gap_pairs else None,
+                exclude_boxes=gap_boxes if gap_pairs else None,
+                gap_keys=gap_keys if (gap_pairs and not gap_style) else None,
                 extra_ports=[(side, key, tile) for box, side, key, tile in gap_extra
                              if box == (gx0, gx1, gy0, gy1)])
             entities.extend(new_pipes)
@@ -2681,6 +2871,11 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
         sandwich_problems.append(craft_note)
     blueprint = {"item": "blueprint", "version": BLUEPRINT_VERSION,
                  "label": f"{label} ({split})", "entities": entities}
+    if spec.pipes and (fluid_in_all or fluid_out_all):
+        try:
+            sandwich_notes.extend(fluid_feed_notes(entities, geom, _USED_BOXES.get() or [], spec))
+        except Exception:        # подсказка не должна ронять сборку блока
+            pass
     if sandwich_problems or sandwich_notes:
         # предупреждения (например «нужно 3 ленты подачи, а влезает 2») и пояснения
         # (например «у рецепта только жидкости») видны прямо в описании блюпринта.
