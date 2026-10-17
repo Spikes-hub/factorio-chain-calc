@@ -34,6 +34,11 @@
 --          Здесь же добавлены сами collision_box и selection_box в рантайме —
 --          чтобы было с чем сверить.
 --
+-- v5 -> v5+: ingredients/products of fluids carry fluidbox_index (and optional_fluidbox_indexes) when the recipe sets
+--          them: the number of the machine's fluid box (1-based, separate for inputs and outputs) the fluid goes
+--          into. Pyanodon sets it on many recipes; without it the game splits the boxes between the fluids itself.
+--          The blueprint generator needs it to know which port gets which fluid: make a NEW dump after updating.
+--
 -- Everything is wrapped in try() because the same file must survive on 1.1
 -- (old game.*_prototypes API) and 2.0+ (prototypes.*), and reading a field
 -- that doesn't exist on a userdata prototype throws instead of returning nil.
@@ -157,6 +162,11 @@ local function dump_ingredient_list(list)
       temperature = ing.temperature,
       minimum_temperature = ing.minimum_temperature,
       maximum_temperature = ing.maximum_temperature,
+      -- 2.0: в какой по счёту жидкостный бокс завода идёт эта жидкость (1-based, отдельно для входов и выходов).
+      -- Py задаёт его у многих рецептов; без него игра делит боксы между жидкостями сама. Генератору блюпринтов
+      -- нужно знать, к какому порту подводить какую жидкость.
+      fluidbox_index = try(function() return ing.fluidbox_index end),
+      optional_fluidbox_indexes = try(function() return ing.optional_fluidbox_indexes end),
     })
   end
   return out

@@ -34,6 +34,8 @@
 """
 from __future__ import annotations
 
+import contextvars
+
 import blueprint as bp
 
 # Куда смотрит порт наружу: у левого столбца это запад, у правого — восток.
@@ -56,12 +58,90 @@ def outer_ports(ports: list[dict], wall: int) -> list[dict]:
     return [p for p in ports if p.get("direction") == wall]
 
 
-def ordered_boxes(ports: list, role: str, wall: int | None, alternate: bool = False, count: int = 0) -> list:
-    """Боксы одной роли в порядке выбора под жидкости рецепта.
+# Жидкости текущего рецепта целиком (у жидкого топлива в начале входов — его имя) и номера боксов, которые рецепт задаёт
+# сам (fluidbox_index, 1-based, раздельно для входов и выходов, 0 — решает игра):
+# {"input": [имена], "output": [имена], "input_index": [...], "output_index": [...]}. Ставит recipe_fluids.
+FLUID_CONTEXT: contextvars.ContextVar = contextvars.ContextVar("fluid_context", default=None)
 
-    Игра кладёт жидкость рецепта в любой подходящий вход (у шаблонов пользователя жидкость идёт и в четвёртый
-    вход литейной, и в нужный по стороне вход у газификатора), поэтому первыми берём боксы, у которых есть устье на
-    нужную стену — туда подводится труба. Бокс жидкого топлива принимает только топливо и всегда стоит первым."""
+
+def _context(role: str) -> tuple[list, list]:
+    ctx = FLUID_CONTEXT.get() or {}
+    return list(ctx.get(role) or []), list(ctx.get(f"{role}_index") or [])
+
+
+def box_groups(rest: list, count: int, role: str, indexes: list | None = None) -> list | None:
+    """Какие боксы игра отдаёт каждой жидкости рецепта (по порядку жидкостей): [[боксы жидкости 1], [жидкости 2], …].
+
+    У рецепта есть fluidbox_index — жидкость идёт ровно в этот бокс (нумерация с 1, отдельно для входов и выходов, в
+    порядке боксов постройки). Если индекса нет, игра делит ВСЕ боксы роли между жидкостями подряд: при двух жидкостях и
+    четырёх боксах первые два боксу первой, последние два — второй. Когда боксов не делится поровну (три на две),
+    неизвестно, кому достаётся лишний, поэтому для каждой жидкости берём только боксы, которые ей принадлежат при любом
+    из двух вариантов (первой — первый бокс, второй — последний при 3 боксах и 2 жидкостях).
+    None — разметки нет (жидкостей больше боксов, индексы заданы не у всех)."""
+    if count <= 0 or not rest:
+        return None
+    if indexes and len(indexes) == count and any(indexes):
+        groups = []
+        for idx in indexes:
+            if not idx or not 1 <= idx <= len(rest):
+                return None
+            groups.append([rest[idx - 1]])
+        return groups
+    if count > len(rest):
+        return None
+    base, extra = divmod(len(rest), count)
+
+    def split(extra_first: bool) -> list:
+        sizes = [base + (1 if (i < extra if extra_first else i >= count - extra) else 0) for i in range(count)]
+        out, pos = [], 0
+        for size in sizes:
+            out.append(rest[pos:pos + size])
+            pos += size
+        return out
+
+    first, last = split(True), split(False)
+    return [[x for x in ga if x in gb] or ga for ga, gb in zip(first, last)]
+
+
+def _role_boxes(ports: list, role: str) -> tuple[list, list]:
+    """(боксы жидкого топлива, боксы рецепта) одной роли; сквозной вход топлива к рецепту не относится."""
+    boxes = sorted({p["box"] for p in ports if p.get("production") == role})
+    through = [b for b in boxes if any(p["box"] == b and p.get("energy") and p.get("flow") == "input-output"
+                                       for p in ports)]
+    boxes = [b for b in boxes if b not in through]
+    energy = [b for b in boxes if any(p["box"] == b and p.get("energy") for p in ports)]
+    return energy, [b for b in boxes if b not in energy]
+
+
+def fluid_group(ports: list, role: str, fluid: str) -> list:
+    """Боксы, которые игра отдаёт этой жидкости рецепта (box_groups); пусто, если разметки нет."""
+    full, indexes = _context(role)
+    if fluid not in full:
+        return []
+    energy, rest = _role_boxes(ports, role)
+    groups = box_groups(rest, len(full) - len(energy), role, indexes[len(energy):] or None)
+    position = full.index(fluid) - len(energy)
+    if not groups or not 0 <= position < len(groups):
+        return []
+    return list(groups[position])
+
+
+def ordered_boxes(ports: list, role: str, wall: int | None, alternate: bool = False, count: int = 0,
+                  fluids: list | None = None) -> list:
+    """Боксы одной роли для жидкостей: i-й в списке — бокс для i-й жидкости из `fluids` (или всего рецепта).
+
+    Раскладку боксов по жидкостям считаем по ВСЕМУ рецепту (имена из FLUID_CONTEXT), даже если вызывающему нужны
+    не все жидкости (часть ушла в зазоры): число и порядок жидкостей определяют, какие боксы кому достаются."""
+    full, _indexes = _context(role)
+    if fluids is not None and full and all(f in full for f in fluids):
+        order = _ordered_boxes(ports, role, wall, alternate, len(full))
+        picked = [order[full.index(f)] for f in fluids if full.index(f) < len(order)]
+        return picked + [b for b in order if b not in picked]
+    return _ordered_boxes(ports, role, wall, alternate, len(full) or count)
+
+
+def _ordered_boxes(ports: list, role: str, wall: int | None, alternate: bool = False, count: int = 0) -> list:
+    """Порядок боксов под count жидкостей рецепта (см. ordered_boxes). Бокс жидкого топлива всегда стоит первым."""
     boxes = sorted({p["box"] for p in ports if p.get("production") == role})
     # сквозной вход топлива (вход-выход) к рецепту не относится: топливо идёт через заводы столбца, см. energy_passthrough
     through = [b for b in boxes if any(p["box"] == b and p.get("energy") and p.get("flow") == "input-output"
@@ -69,20 +149,44 @@ def ordered_boxes(ports: list, role: str, wall: int | None, alternate: bool = Fa
     boxes = [b for b in boxes if b not in through]
     energy = [b for b in boxes if any(p["box"] == b and p.get("energy") for p in ports)]
     rest = [b for b in boxes if b not in energy]
+    indexes = _context(role)[1]
     if wall is None:
-        return energy + rest
+        groups = box_groups(rest, count - len(energy), role, indexes[len(energy):] or None)
+        return energy + ([g[0] for g in groups] if groups else []) + [
+            b for b in rest if not groups or b not in {g[0] for g in groups}]
+    opposite = (wall + 8) % 16
+
+    def mouth(box, side):
+        return any(p["box"] == box and p.get("direction") == side for p in ports)
+
+    groups = box_groups(rest, count - len(energy), role, indexes[len(energy):] or None)
+    if groups:
+        picks: list = []
+        for index, group in enumerate(groups):
+            candidates = [b for b in group if b not in picks]
+            if alternate and count > 1:
+                # Коридор занят лентой выгрузки, там помещается одна цепочка: жидкости раскладываем по стенам по очереди
+                # (первая — на нужную стену, вторая — на противоположную), как в шаблоне с колонной сухой перегонки.
+                sides = (wall, opposite) if index % 2 == 0 else (opposite, wall)
+            else:
+                # сначала боксы на нужную стену, потом на противоположную (в коридор: туда ведёт труба), и только
+                # потом те, чьё устье смотрит вдоль стенки (к ним трубу не подвести)
+                sides = (wall, opposite)
+            pick = next((b for side in sides for b in candidates if mouth(b, side)), None)
+            if pick is None and candidates:
+                pick = candidates[0]
+            if pick is None:
+                break
+            picks.append(pick)
+        return energy + picks + [b for b in rest if b not in picks]
     if alternate and count > 1:
-        # Коридор занят лентой выгрузки, там помещается одна цепочка: жидкости раскладываем по стенам по очереди
-        # (первая — на нужную стену, вторая — на противоположную), как в шаблоне с колонной сухой перегонки.
-        opposite = (wall + 8) % 16
         remaining = list(rest)
         order: list = []
         for index in range(count):
             preferred = (wall, opposite) if index % 2 == 0 else (opposite, wall)
             pick = None
             for side in preferred:
-                pick = next((b for b in remaining if any(p["box"] == b and p.get("direction") == side for p in ports)),
-                            None)
+                pick = next((b for b in remaining if mouth(b, side)), None)
                 if pick is not None:
                     break
             if pick is None and remaining:
@@ -92,12 +196,8 @@ def ordered_boxes(ports: list, role: str, wall: int | None, alternate: bool = Fa
             order.append(pick)
             remaining.remove(pick)
         return energy + order + remaining
-    facing = [b for b in rest if any(p["box"] == b and p.get("direction") == wall for p in ports)]
-    # после боксов на нужную стену — боксы на противоположную (в коридор между столбцами: туда ведёт труба), и только
-    # потом те, чьё устье смотрит вдоль стенки (к ним трубу не подвести)
-    opposite = (wall + 8) % 16
-    inner = [b for b in rest if b not in facing
-             and any(p["box"] == b and p.get("direction") == opposite for p in ports)]
+    facing = [b for b in rest if mouth(b, wall)]
+    inner = [b for b in rest if b not in facing and mouth(b, opposite)]
     return energy + facing + inner + [b for b in rest if b not in facing and b not in inner]
 
 
@@ -126,7 +226,7 @@ def outer_keys(ports: list[dict], wall: int, inputs: list, outputs: list, inward
         # выходы в обычной раскладке смотрят в коридор между столбцами (на противоположную стену)
         role_wall = (wall + 8) % 16 if (role == "output" and inward_outputs) else wall
         boxes = ordered_boxes(ports, role, role_wall, alternate=split_outputs and role == "output",
-                              count=len(fluids))
+                              count=len(fluids), fluids=list(fluids))
         # i-я жидкость рецепта идёт в i-й бокс этого порядка (см. ordered_boxes)
         for index, fluid in enumerate(fluids):
             if index < len(boxes) and any(
@@ -145,7 +245,7 @@ def inner_keys(ports: list[dict], wall: int, inputs: list, outputs: list, inward
     for role, fluids in (("input", inputs), ("output", outputs)):
         role_wall = (wall + 8) % 16 if (role == "output" and inward_outputs) else wall
         boxes = ordered_boxes(ports, role, role_wall, alternate=split_outputs and role == "output",
-                              count=len(fluids))
+                              count=len(fluids), fluids=list(fluids))
         for index, fluid in enumerate(fluids):
             if index >= len(boxes):
                 continue
@@ -283,11 +383,13 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
         if not t or not (x0 <= t[0] < x_end and y0 <= t[1] < y1):
             continue
         side = WEST if (west_only or t[0] + t[2] / 2 < mid) else EAST
-        conns = [c for c in bp.fluid_connections(ent, geometry)
-                 if c["kind"] != "underground" and c["box"] not in (exclude_boxes or ())]
+        conns_all = [c for c in bp.fluid_connections(ent, geometry) if c["kind"] != "underground"]
+        conns = [c for c in conns_all if c["box"] not in (exclude_boxes or ())]
         for role, fluids in (("input", recipe_inputs), ("output", recipe_outputs)):
-            boxes = ordered_boxes(conns, role, (side + 8) % 16 if (role == "output" and inward_outputs) else side,
-                                  alternate=split_outputs and role == "output", count=len(fluids))
+            # порядок считаем по всем боксам, включая ушедшие в зазоры: от них зависит, какой жидкости что достаётся
+            boxes = ordered_boxes(conns_all, role, (side + 8) % 16 if (role == "output" and inward_outputs) else side,
+                                  alternate=split_outputs and role == "output", count=len(fluids),
+                                  fluids=list(fluids))
             for index, fluid in enumerate(fluids):
                 if index >= len(boxes):
                     notes.append(f"{role}: у завода нет бокса под жидкость {fluid} — трубу проведи сам")
