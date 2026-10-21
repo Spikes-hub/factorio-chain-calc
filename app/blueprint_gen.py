@@ -379,6 +379,8 @@ _CENTER_OK: contextvars.ContextVar = contextvars.ContextVar("center_ok", default
 # Раскладка парами без зазора в каждой паре: по умолчанию берётся первая подходящая (как в образце «Фабрика
 # наноматериалов»); запасной вариант — отдать в зазоры более поздние жидкости рецепта (образец «Латексный блок»)
 _GAP_LATER: contextvars.ContextVar = contextvars.ContextVar("gap_later", default=False)
+# Две выходные жидкости идут в коридор с лентой выгрузки (образец «Титановый порошок»): коридор на тайл шире
+_CROSS_OUT: contextvars.ContextVar = contextvars.ContextVar("cross_out", default=False)
 _FORCED_ORIENTATION: contextvars.ContextVar = contextvars.ContextVar("forced_orientation", default=None)
 
 
@@ -1693,7 +1695,8 @@ def layout_group_rows(groups: list[int], row_groups: list | None) -> list[list[i
 
 
 def group_width_tiles(w: int, supply_belts: int, out_belt: bool, dumps: bool = False,
-                      single_column: bool = False, center_supply: bool = False, center_extra: int = 0) -> int:
+                      single_column: bool = False, center_supply: bool = False, center_extra: int = 0,
+                      cross_lane: int = 0) -> int:
     """Ширина одной группы в тайлах — как её раскладывает generate_sandwich_block.
 
         [ленты подачи][манипулятор][заводы][манипулятор][лента выгрузки][манипулятор][заводы][манипулятор][ленты подачи]
@@ -1708,6 +1711,8 @@ def group_width_tiles(w: int, supply_belts: int, out_belt: bool, dumps: bool = F
     if single_column:
         return width + 1                                # погрузчик на тайле выгрузки, дальше — ленты игрока
     width += 1 if (dumps or not out_belt) else 3        # лента выгрузки вплотную или манипулятор+лента+манипулятор
+    if out_belt and not dumps:
+        width += cross_lane                             # полоса труб рядом с лентой (две выходные жидкости в коридоре)
     if not out_belt:
         width += center_extra                           # стволы жидкостей в середине коридора
     width += w                                          # правый столбец заводов
@@ -1899,22 +1904,27 @@ def generate_sandwich_block(spec: BlockSpec, geometry: dict | None = None) -> di
             raise
         # Запасные раскладки по порядку: те же столбцы, но заводы могут стоять зеркально; затем пары через зазор
         # Последними — те же столбцы без ленты подачи по центру: лента снаружи, обе выходные жидкости в коридоре
-        for gap_pairs, mirror, symmetric, center_ok, later in (
-                (0, True, True, True, False), (0, True, False, True, False), (1, False, False, True, False),
-                (1, True, False, True, False), (2, True, False, True, False), (1, False, False, True, True),
-                (1, True, False, True, True), (0, False, False, False, False), (0, True, True, False, False),
-                (0, True, False, False, False)):
+        for gap_pairs, mirror, symmetric, center_ok, later, cross in (
+                (0, True, True, True, False, False), (0, True, False, True, False, False),
+                (1, False, False, True, False, False), (1, True, False, True, False, False),
+                (2, True, False, True, False, False), (1, False, False, True, True, False),
+                (1, True, False, True, True, False), (0, False, False, False, False, False),
+                (0, True, True, False, False, False), (0, True, False, False, False, False),
+                (0, True, True, True, False, True), (0, True, False, True, False, True),
+                (0, False, False, True, False, True)):
             if gap_pairs and "смотрит вдоль стенки" not in str(first):
                 continue
             token = _MIRROR_OK.set(mirror)
             token_sym = _SYMMETRIC.set(symmetric)
             token_center = _CENTER_OK.set(center_ok)
             token_later = _GAP_LATER.set(later)
+            token_cross = _CROSS_OUT.set(cross)
             try:
                 obj = attempt(gap_pairs)
             except (_GapUnavailable, UnsupportedLayout, ValueError):
                 continue
             finally:
+                _CROSS_OUT.reset(token_cross)
                 _GAP_LATER.reset(token_later)
                 _CENTER_OK.reset(token_center)
                 _SYMMETRIC.reset(token_sym)
@@ -1996,6 +2006,9 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
                      and len(fluid_out_all) >= 2 and _CENTER_OK.get())
     # Лента выгрузки занимает коридор: две выходные жидкости идут по разным стенам (одна в коридор, другая наружу)
     split_outputs = out_belt_all and not center_supply and not own_loader and len(fluid_out_all) > 1
+    # Запасная раскладка: обе выходные жидкости смотрят в коридор с лентой — полоса труб рядом с лентой (см. group_pipes)
+    cross_out = bool(_CROSS_OUT.get() and out_belt_all and not center_supply and not own_loader and not self_dump
+                     and spec.pipes and len(fluid_out_all) == 2 and not gap_pairs)
     # Раскладка парами с зазором: рецепт, порт жидкости которого смотрит вдоль столбца (см. _gap_column)
     gap_left = gap_right = None
     gap_want = None
@@ -2068,7 +2081,8 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
         if len(inward) > 1:
             center_extra = 1 + 3 * (len(inward) - 1)
     group_width = group_width_tiles(w, supply_belts_all, out_belt_all, dumps=self_dump, single_column=own_loader,
-                                    center_supply=center_supply, center_extra=center_extra)
+                                    center_supply=center_supply, center_extra=center_extra,
+                                    cross_lane=1 if cross_out else 0)
     placements: list = []          # [(номер группы, x, y)]
     # Под стволы труб с краёв группы нужны свободные столбцы: слева и справа от
     # каждой группы. Считаем их по повороту столбцов заранее — от них зависит и
@@ -2224,8 +2238,8 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
         elif out_belt:
             x_mid_ins_l = x_left + w
             x_out_belt = x_mid_ins_l + 1
-            x_mid_ins_r = x_out_belt + 1
-            x_right = x_mid_ins_r + 1
+            x_mid_ins_r = x_out_belt + (2 if cross_out else 1)       # с перекрёстной раскладкой между лентой и
+            x_right = x_mid_ins_r + 1                                #   полосой правого столбца — полоса труб
         else:
             # Тайл между столбцами оставляем пустым: в него смотрят выходы
             # жидкостей, и трубу туда поставить будет можно.
@@ -2762,7 +2776,7 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
                 geometry=geom, pipe=spec.pipe, pipe_ground=spec.pipe_ground, west_only=own_loader,
                 inward_outputs=not center_supply, soft=spec.pole, center_trunks_ok=center_extra > 0,
                 split_outputs=split_outputs, used_log=_USED_BOXES.get(),
-                exclude_boxes=gap_boxes if gap_pairs else None,
+                exclude_boxes=gap_boxes if gap_pairs else None, cross_outputs=cross_out,
                 gap_keys=gap_keys if (gap_pairs and not gap_style) else None,
                 extra_ports=[(side, key, tile) for box, side, key, tile in gap_extra
                              if box == (gx0, gx1, gy0, gy1)])

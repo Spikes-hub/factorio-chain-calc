@@ -355,8 +355,13 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
                 inward_outputs: bool = True, soft: str | None = None,
                 center_trunks_ok: bool = False, split_outputs: bool = False, exclude_boxes: set | None = None,
                 gap_keys: list | None = None, extra_ports: list | None = None,
-                used_log: list | None = None) -> tuple[list[dict], int, list[str]]:
+                used_log: list | None = None, cross_outputs: bool = False) -> tuple[list[dict], int, list[str]]:
     """Трубы одной группы. Возвращает (новые сущности, следующий номер, замечания).
+
+    cross_outputs — две выходные жидкости идут в коридор с лентой выгрузки (образец «Титановый порошок»): коридор
+    [полоса левого столбца][лента][полоса труб][полоса правого столбца]. Вторая жидкость идёт цепочкой в своей полосе у
+    каждого столбца, первая — цепочкой слева, а правым столбцом уходит в отдельную полосу (труба у порта и цепочка
+    рядом), и подземная труба под лентой переводит первую жидкость левого столбца на полосу правого.
 
     x0 / x_end — левый и правый (не включая) край группы в тайлах, y0..y1 — её
     высота. Заводы группы берём из уже расставленных `entities`.
@@ -376,6 +381,8 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
     stubs: list = []   # (side, key, approach tile)
     inward_pairs: set = set()   # (ключ, x коридора) портов, которые смотрят внутрь блока
     inner: dict = {}   # (ключ, x коридора) -> [тайлы подхода] для цепочек; оба столбца в один коридор сливаются
+    cross_stubs: list = []      # (тайл у порта левого столбца, ключ): жидкость уходит под лентой на полосу справа
+    cross_pipes: list = []      # тайлы одиночных труб у портов правого столбца (соединитель к соседней полосе)
     for ent in entities:
         if ent.get("name") != machine:
             continue
@@ -413,6 +420,18 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
                     tile = inward[0]["approach_tile"]
                     if tile in occupied:
                         notes.append(f"тайл подхода {tile} занят — трубу к {fluid} проведи сам")
+                        continue
+                    if cross_outputs and role == "output" and len(recipe_outputs) == 2:
+                        # первая выходная жидкость — «перекрёстная»: слева под лентой, справа соединитель к полосе труб
+                        crossing = fluid == recipe_outputs[0]
+                        lane_free = tile[0] - 1 if side == EAST else tile[0] + 2    # полоса труб рядом с лентой
+                        if side == WEST and crossing:
+                            cross_stubs.append((tile, (role, fluid)))
+                        elif side == EAST and not crossing:
+                            cross_pipes.append(tile)
+                            inner.setdefault(((role, fluid), lane_free), []).append((lane_free, tile[1]))
+                        else:
+                            inner.setdefault(((role, fluid), tile[0]), []).append(tile)
                         continue
                     inner.setdefault(((role, fluid), tile[0]), []).append(tile)
                     inward_pairs.add(((role, fluid), tile[0]))
@@ -557,6 +576,29 @@ def group_pipes(entities: list[dict], number: int, *, machine: str, recipe_input
             new_entities.append(_entity(number, pipe, tile))
             number += 1
 
+    # Перекрёстная раскладка: у левого столбца первая выходная жидкость уходит подземной трубой под лентой на полосу
+    # труб (там мундштук смотрит на восток) и приходит к трубе у порта правого столбца; у правого столбца вторая жидкость
+    # соединяется одиночной трубой с цепочкой на соседней полосе.
+    for tile in cross_pipes:
+        if tile in taken:
+            notes.append(f"труба у порта {tile} уже занята — соедини сам")
+            continue
+        taken.add(tile)
+        new_entities.append(_entity(number, pipe, tile))
+        number += 1
+    for tile, key in cross_stubs:
+        belt_x = tile[0] + 1
+        exit_tile = (belt_x + 1, tile[1])
+        landing = (belt_x + 2, tile[1])
+        if tile in taken or exit_tile in taken or exit_tile in occupied:
+            notes.append(f"труба к {key[1]}: место под подземную трубу через ленту занято — соедини сам")
+            continue
+        taken.update((tile, exit_tile))
+        new_entities.append(_entity(number, pipe_ground, tile, WEST))      # у порта: устье к заводу, туннель под ленту
+        number += 1
+        new_entities.append(_entity(number, pipe_ground, exit_tile, EAST))  # за лентой: устье к полосе правого столбца
+        number += 1
+        inner.setdefault((key, landing[0]), []).append(landing)             # дальше — цепочка правого столбца
     # Цепочки в коридорах столбцов — для портов, смотрящих внутрь блока.
     spans: dict = {}   # x коридора -> занятые участки [(верх, низ)] других цепочек
     for (key, column), tiles in sorted(inner.items(), key=lambda item: min(t[1] for t in item[1])):
