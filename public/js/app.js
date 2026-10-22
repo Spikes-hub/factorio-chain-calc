@@ -405,7 +405,40 @@
     return Math.max(...members.map((m) => getTabTargetRateInSec(m.id)));
   }
 
-  function groupTabs(idA, idB) {
+  /** Вкладка питает участника группы тем, что в самой группе уже есть побочкой (например, «Титановые отходы» у
+   *  группы «Титан 3 сорта»): бросок такой вкладки на вкладку группы включает её в расчёт группы как поставщика.
+   *  Побочка группы идёт участнику первой, а вкладка делает ровно то, чего не хватает (см. supplierShortfall).
+   *  Возвращает true, если так и сделали. */
+  async function joinGroupAsSupplier(idA, idB) {
+    const a = calcTabs.find((t) => t.id === idA);
+    const b = calcTabs.find((t) => t.id === idB);
+    if (!a || !b) return false;
+    for (const [supplier, member] of [[a, b], [b, a]]) {
+      if (!member.groupId || supplier.groupId || !supplier.parentInfo) continue;
+      const group = tabGroups[member.groupId];
+      const consumer = calcTabs.find((t) => t.id === supplier.parentInfo.tabId);
+      if (!group || !consumer || consumer.groupId !== member.groupId) continue;   // питает участника ЭТОЙ группы
+      supplier.supplierOf = member.groupId;
+      await redistributeGroup(member.groupId, group.targetTotal || computeGroupTotal(member.groupId));
+      renderCalcTabBar();
+      renderResults();
+      return true;
+    }
+    return false;
+  }
+
+  /** Сколько вкладка-поставщик группы должна сделать: потребность участника минус то, что побочкой делает сама группа. */
+  function supplierNeed(child, need) {
+    const group = child.supplierOf && tabGroups[child.supplierOf];
+    if (!group || !(need > 0) || !child.parentInfo) return need;
+    const links = (group.coupling && group.coupling.links) || [];
+    const made = links
+      .filter((l) => l.item === child.parentInfo.itemKey && l.consumerId === child.parentInfo.tabId)
+      .reduce((sum, l) => sum + (l.madeSec || 0), 0);
+    return Math.max(need - made, 0);
+  }
+
+  async function groupTabs(idA, idB) {
     if (idA === idB) return;
     const tabA = calcTabs.find((t) => t.id === idA);
     const tabB = calcTabs.find((t) => t.id === idB);
@@ -413,6 +446,7 @@
     const rootA = (getTabCascade(idA) || {}).root;
     const rootB = (getTabCascade(idB) || {}).root;
     if (!rootA || !rootB || rootA.primaryProduct !== rootB.primaryProduct) {
+      if (rootA && rootB && (await joinGroupAsSupplier(idA, idB))) return;
       alert("Можно объединять только вкладки с одинаковым конечным продуктом.");
       return;
     }
@@ -433,6 +467,7 @@
 
   function ungroupTab(groupId) {
     const group = tabGroups[groupId];
+    for (const t of calcTabs) if (t.supplierOf === groupId) delete t.supplierOf;   // поставщик группы больше не при делах
     for (const t of calcTabs) {
       if (t.groupId === groupId) {
         delete t.groupId;
@@ -1102,7 +1137,7 @@
       const fullTitle = root && state.dataset.recipes[root.recipeName]
         ? disambiguatedLabel(state.dataset.recipes[root.recipeName], sameTitle)
         : title;
-      div.title = fullTitle + (tab.groupId ? " (в группе)" : "");
+      div.title = fullTitle + (tab.groupId ? " (в группе)" : "") + (tab.supplierOf ? " — добирает недостающее для группы" : "");
       div.draggable = true;
       div.innerHTML = `${icon}<span class="calcTabClose">✕</span>`;
       div.addEventListener("click", (e) => {
@@ -9472,7 +9507,11 @@
         }
         continue;
       }
-      const newRate = tabRawNeed(parentCascade, parentResult, itemKey);
+      let newRate = tabRawNeed(parentCascade, parentResult, itemKey);
+      if (child.supplierOf && newRate != null) {
+        newRate = supplierNeed(child, newRate);
+        if (!(newRate > 0)) newRate = 1e-6;       // группа покрывает всё сама: вкладка почти простаивает
+      }
       soloChildren.push({ child, newRate });
     }
 
@@ -11693,7 +11732,7 @@
       tree: {
         mode: "cascade",
         cascade: state.cascade, // kept for backward compatibility with old saved chains
-        tabs: calcTabs.map((t) => ({ id: t.id, cascade: (tabSnapshots[t.id] || {}).cascade, groupId: t.groupId || null, parentInfo: t.parentInfo || null })),
+        tabs: calcTabs.map((t) => ({ id: t.id, cascade: (tabSnapshots[t.id] || {}).cascade, groupId: t.groupId || null, parentInfo: t.parentInfo || null, supplierOf: t.supplierOf || null })),
         tabGroups,
         // Лента — часть цепочки: одна на всю цепочку (вход и выход всех вкладок),
         // и после загрузки она должна остаться той же, иначе все ленты в карточках
@@ -11865,6 +11904,7 @@
         id: t.id || "t" + Math.random().toString(36).slice(2),
         groupId: t.groupId || null,
         parentInfo: t.parentInfo || null,
+        ...(t.supplierOf ? { supplierOf: t.supplierOf } : {}),
       }));
       for (const key of Object.keys(tabSnapshots)) delete tabSnapshots[key];
       for (const key of Object.keys(tabGroups)) delete tabGroups[key];
@@ -12889,6 +12929,8 @@
     tabNeedForItem,
     saveCurrentTabSnapshot,
     moveTabBlock,
+    joinGroupAsSupplier,
+    supplierNeed,
     settleChainNet,
     settleNetTarget,
     chainItemFlow,

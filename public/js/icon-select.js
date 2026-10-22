@@ -128,9 +128,22 @@
       for (const m of mutations) m.addedNodes.forEach((node) => node.nodeType === 1 && scan(node));
       document.querySelectorAll("select:not([data-icon-select])").forEach(enhance); // иконки могли появиться позже
     }).observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("click", closeMenu);
+    // клик по самому меню (полоса прокрутки, зазоры между пунктами) его не закрывает
+    document.addEventListener("click", (e) => {
+      if (openBox && e.target && e.target.closest && e.target.closest(".isMenu")) return;
+      closeMenu();
+    });
     document.addEventListener("keydown", (e) => e.key === "Escape" && closeMenu());
-    window.addEventListener("scroll", closeMenu, true);
+    // страница прокрутилась — меню (оно position: fixed) уехало от кнопки, закрываем; а прокрутка самого меню (колесо,
+    // ползунок справа) событие scroll тоже даёт, и закрывать из-за неё нельзя — иначе список не листается
+    window.addEventListener(
+      "scroll",
+      (e) => {
+        if (openBox && e.target instanceof Node && openBox.contains(e.target)) return;
+        closeMenu();
+      },
+      true
+    );
     window.addEventListener("resize", closeMenu);
   }
 
