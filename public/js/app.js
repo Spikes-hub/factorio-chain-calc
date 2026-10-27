@@ -161,6 +161,12 @@
     if (calcTabs.length <= 1) return;
     const tab = calcTabs[index];
     const wasFirst = index === 0;
+    // Первая вкладка — корень цепочки, её удаление меняет всю цепочку. Спрашиваем ДО удаления:
+    // «Нет» оставляет всё как было.
+    if (wasFirst && typeof confirm === "function" &&
+        !confirm("Удалить первую вкладку? Цепочка перейдёт на следующую вкладку.\n\nДа — удалить.\nНет — оставить как есть.")) {
+      return;
+    }
     const nameInput = document.getElementById("chainName");
     delete tabSnapshots[tab.id];
     calcTabs.splice(index, 1);
