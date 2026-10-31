@@ -266,11 +266,22 @@ def make_chest_for_blueprint(req: BlueprintChestRequest):
                      + ", ".join(data["dropped"]))
     if data["unknown"]:
         notes.append("не понял, чем ставится: " + ", ".join(data["unknown"]))
+    chests = [{
+        "items": c["items"],
+        "positions": len(c["items"]),
+        "slots": c["slots"],
+    } for c in data["chests"]]
+    if len(chests) > 1:
+        notes.append(f"всё не влезло в один сундук ({data['slots_per_chest']} ячеек) — "
+                     f"сделано сундуков запроса: {len(chests)}, все в одном чертеже")
     return {
         "string": string,
         "label": bp.blueprint_of(data["chest"]).get("label", ""),
         "items": data["items"],
         "positions": len(data["items"]),
+        "chests": chests,
+        "chestCount": len(chests),
+        "slotsPerChest": data["slots_per_chest"],
         "entities": data["entities"],
         "totalEntities": data["total_entities"],
         "notes": notes,

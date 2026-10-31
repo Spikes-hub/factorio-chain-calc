@@ -5241,10 +5241,19 @@
     // block = its own feeding group(s).
     const blockSizes = [];
     if (usesOutputBelt && alignPriority === "out") {
-      for (let i = 0; i < outPlan.blocks - 1; i++) blockSizes.push(outPlan.machinesPerBelt);
-      // Последний блок — остаток ПОТОКА, а не целых заводов: ёмкость группы ниже тоже в потоке
-      // (дробная), и целая единица, поделённая на дробную ёмкость 0.2, давала «1 + 4 × 0».
-      blockSizes.push(Math.max(1e-9, n.machines - (outPlan.blocks - 1) * outPlan.machinesPerBelt));
+      // Число блоков задаёт выход (сколько заводов выгружает одна лента), а внутри этого числа заводы
+      // делятся поровну: 54 при 45 на ленту — это 27 + 27, а не 45 + 9. Блок не больше машин на ленту,
+      // так что выход не ломается. Размер дробный (поток), как и раньше у последнего блока.
+      // Целые заводы делятся поровну (большие блоки первыми), последний блок берёт остаток потока.
+      const whole = Math.max(outPlan.blocks, totalMachines);
+      let flowLeft = n.machines;
+      for (let i = 0; i < outPlan.blocks; i++) {
+        const size = Math.floor(whole / outPlan.blocks) + (i < whole % outPlan.blocks ? 1 : 0);
+        const last = i === outPlan.blocks - 1;
+        const take = last ? Math.max(1e-9, flowLeft) : Math.min(size, Math.max(1e-9, flowLeft - (outPlan.blocks - 1 - i) * 1e-9));
+        blockSizes.push(take);
+        flowLeft -= take;
+      }
     } else {
       blockSizes.push(n.machines);
     }
@@ -5606,11 +5615,16 @@
 
     const perBlock = Math.max(1, machinesPerBelt);
     const blocks = oneMachineNeedsMultipleBelts ? totalMachines : Math.ceil(totalMachines / perBlock);
-    const lastBlockMachines = oneMachineNeedsMultipleBelts ? 1 : totalMachines - (blocks - 1) * perBlock;
+    // Число блоков задаёт ёмкость ленты, а заводы между ними делятся поровну (54 при 45 на ленту — 27 + 27,
+    // а не 45 + 9). Блок не больше perBlock, так что выход не ломается; большие блоки идут первыми.
+    const blockSizes = oneMachineNeedsMultipleBelts
+      ? Array(blocks).fill(1)
+      : Array.from({ length: blocks }, (_, i) => Math.floor(totalMachines / blocks) + (i < totalMachines % blocks ? 1 : 0));
+    const lastBlockMachines = blockSizes[blocks - 1];
 
     // The block we actually describe: if everything fits on one belt there is
     // no "full block" - there's just the machines you have.
-    const blockMachines = blocks <= 1 ? totalMachines : perBlock;
+    const blockMachines = blocks <= 1 ? totalMachines : blockSizes[0];
 
     // What the belt will actually CARRY is the required flow spread over the
     // machines that get BUILT, not "every built machine running flat out". Those
@@ -5621,7 +5635,7 @@
     // the belt, not about the duty cycle.
     const demandShare = (machines) => (totalMachines > 0 ? (totalRate * machines) / totalMachines : 0);
     const pctOfBelt = (rate) => Math.min(100, (rate * 100) / beltSpeed);
-    const fullBlockPct = pctOfBelt(demandShare(perBlock));
+    const fullBlockPct = pctOfBelt(demandShare(blockSizes[0]));
     const lastBlockPct = pctOfBelt(demandShare(lastBlockMachines));
     const blockCapacityPct = pctOfBelt(perBlock * perMachineTotal);
 
@@ -5659,6 +5673,7 @@
       perMachineTotal,
       totalMachines,
       machinesPerBelt: perBlock,
+      blockSizes,
       blockMachines,
       blocks,
       lastBlockMachines,
@@ -5695,7 +5710,7 @@
     let index = 0;
     let leftInGroup = groupSizes[0] || 0;
     for (let b = 0; b < plan.blocks; b += 1) {
-      const size = b === plan.blocks - 1 ? plan.lastBlockMachines : plan.machinesPerBelt;
+      const size = plan.blockSizes ? plan.blockSizes[b] : b === plan.blocks - 1 ? plan.lastBlockMachines : plan.machinesPerBelt;
       let left = size;
       const parts = [];
       while (left > 0 && index < groupSizes.length) {
@@ -5799,20 +5814,19 @@
     // Blocks are counted correctly (10 machines at 8 per belt = one full block and
     // a remainder of 2), but the sentence said "делятся на 2 блока ПО 8 заводов",
     // which reads as 16 machines. So we spell out the actual split: 8 + 2.
-    const lastIsFull = plan.lastBlockMachines === plan.machinesPerBelt;
-    const fullBlocks = lastIsFull ? plan.blocks : Math.max(0, plan.blocks - 1);
+    const allFull = plan.blockSizes.every((v) => v === plan.machinesPerBelt);
+    const runs = [];
+    for (const v of plan.blockSizes) {
+      if (runs.length && runs[runs.length - 1].size === v) runs[runs.length - 1].count += 1;
+      else runs.push({ size: v, count: 1 });
+    }
     const sizes =
-      fullBlocks > 2
-        ? `${fullBlocks} × ${plan.machinesPerBelt}${lastIsFull ? "" : ` + ${plan.lastBlockMachines}`}`
-        : [
-            ...Array(fullBlocks).fill(plan.machinesPerBelt),
-            ...(lastIsFull ? [] : [plan.lastBlockMachines]),
-          ].join(" + ");
-    const lastNote = lastIsFull
+      plan.blocks > 3
+        ? runs.map((r) => (r.count > 1 ? `${r.count} × ${r.size}` : `${r.size}`)).join(" + ")
+        : plan.blockSizes.join(" + ");
+    const lastNote = allFull
       ? ""
-      : ` Лента последнего блока (${plan.lastBlockMachines} ${pluralMachines(
-          plan.lastBlockMachines
-        )}) заполнена на ${plan.lastBlockPct.toFixed(0)}%.`;
+      : ` Самая загруженная лента заполнена на ${plan.fullBlockPct.toFixed(0)}%.`;
     const groupsNote = nodeId ? outputFeedGroupsHTML(nodeId, plan) : "";
     const sizesLegend = sizes.includes("×") ? ` <span class="hint">(блоков × заводов в блоке)</span>` : "";
     return `<div class="beltGroupNote">Твои <b>${plan.totalMachines}</b> ${pluralMachines(
@@ -6546,7 +6560,7 @@
     const scope =
       plan.blocks <= 1
         ? `<span class="hint">(${isAsh ? "пепел от топлива, " : ""}${part.streamPct.toFixed(0)}% потока)</span>`
-        : `<span class="hint">(${isAsh ? "пепел от топлива, " : ""}${part.streamPct.toFixed(0)}% потока, в блоке из ${plan.machinesPerBelt} ${pluralMachines(plan.machinesPerBelt)})</span>`;
+        : `<span class="hint">(${isAsh ? "пепел от топлива, " : ""}${part.streamPct.toFixed(0)}% потока, в блоке из ${plan.blockMachines} ${pluralMachines(plan.blockMachines)})</span>`;
     return `<li>${icon}<b>${name}</b>${isAsh ? ` <span class="hint">(побочка от сжигания топлива)</span>` : ""}: ${part.rate.toFixed(
       2
     )}/сек → занимает ${beltFillBarHTML(part.beltPct)} ленты ${scope}</li>`;
@@ -6950,15 +6964,33 @@
       })
       .join("");
     const warnings = [].concat(data.notes || []);
+    const chests = data.chests || [];
+    const many = chests.length > 1;
+    const head = many
+      ? `Сундуков запроса: <b>${chests.length}</b> (всё не влезло в один, ${data.slotsPerChest || 48} ячеек) — ` +
+        `позиций: <b>${data.positions || 0}</b>, построек в чертеже: <b>${data.totalEntities || 0}</b>`
+      : `Сундук для этого блюпринта — позиций: <b>${data.positions || 0}</b>, ` +
+        `построек в чертеже: <b>${data.totalEntities || 0}</b>`;
+    const hint = many
+      ? `Один чертёж: ${chests.length} сундуков стоят в ряд, у каждого свой запрос. Вставь на пустое место.`
+      : `Вставь сундук на пустое место и построй его — он сам запросит всё из логистики.`;
+    const parts = many
+      ? `<details class="bpDetails" open><summary>Сундуки в чертеже (${chests.length})</summary><ul class="bpList">` +
+          chests
+            .map((c, i) => `<li>Сундук ${i + 1} из ${chests.length}: позиций ${c.positions}, ` +
+              `занято ячеек ${c.slots} из ${data.slotsPerChest || 48}</li>`)
+            .join("") +
+        `</ul></details>`
+      : "";
     return (
       `<details class="bpDetails chainChest" id="bpChestDetails" open>` +
-        `<summary>Сундук для этого блюпринта — позиций: <b>${data.positions || 0}</b>, ` +
-        `построек в чертеже: <b>${data.totalEntities || 0}</b></summary>` +
+        `<summary>${head}</summary>` +
         `<textarea class="bpString" id="bpChestString" readonly rows="3">${data.string}</textarea>` +
         `<div class="bpPanelRow"><button type="button" class="btn bpCopyBtn">Скопировать строку</button>` +
-        `<span class="hint">Вставь сундук на пустое место и построй его — он сам запросит всё из логистики.</span></div>` +
+        `<span class="hint">${hint}</span></div>` +
         `<div class="hint">название чертежа в игре: ${data.label || "—"}</div>` +
       `</details>` +
+      parts +
       `<details class="bpDetails" open><summary>Что просит сундук (${(data.items || []).length})</summary>` +
         `<ul class="bpList">${items}</ul></details>` +
       `<details class="bpDetails"><summary>Что нашлось в блюпринте (${(data.entities || []).length} видов)</summary>` +
@@ -6997,8 +7029,8 @@
       const note = document.createElement("div");
       note.className = copied ? "hint" : "bpWarn";
       note.textContent = copied
-        ? `Строка сундука скопирована в буфер: ${data.totalEntities} построек разобрано, `
-          + `просим ${data.positions} позиций.`
+        ? `Строка ${data.chestCount > 1 ? `чертежа из ${data.chestCount} сундуков` : "сундука"} скопирована в буфер: `
+          + `${data.totalEntities} построек разобрано, просим ${data.positions} позиций.`
         : `Скопировать не удалось — раскрой раздел и нажми «Скопировать строку» или Ctrl+C `
           + `(построек разобрано: ${data.totalEntities}).`;
       out.prepend(note);
@@ -8224,6 +8256,12 @@
     const scaleFactor = v / origMachines;
     if (!(scaleFactor > 0) || !isFinite(scaleFactor)) return;
     state.cascade.targetRate = state.cascade.targetRate * scaleFactor;
+    // Не первая вкладка рецепта: пересчитываем весь рецепт от первой вкладки.
+    const thisTab = calcTabs[activeTabIndex];
+    if (thisTab && chainRootTabId(thisTab.id) !== thisTab.id) {
+      await recalcChainAndTabs(false);
+      return;
+    }
     await runSolve();
     saveCurrentTabSnapshot();
     // If this active tab is part of a group, use this node's actual output
@@ -9359,7 +9397,9 @@
       if (isFinite(displayed)) {
         const entered = unit === "min" ? displayed / 60 : displayed;
         rateEdited = Math.abs(entered - rateBefore) > 1e-9 * Math.max(1, Math.abs(rateBefore));
-        state.cascade.targetRate = entered;
+        // Неизменённое поле не трогаем: в нём округлённое число, и оно сдвинуло бы
+        // цель (а на дочерней вкладке — масштаб всего рецепта) на долю процента.
+        if (rateEdited) state.cascade.targetRate = entered;
       }
     }
     await recalcChainAndTabs(rateEdited);
@@ -9372,6 +9412,74 @@
    *  вкладки (те, что человек отпочковал от сырья), и группы вкладок.
    */
   async function recalcChainAndTabs(rateEdited) {
+    const activeTab = calcTabs[activeTabIndex];
+    // Вкладка, выросшая из ресурса другой вкладки, — часть того же рецепта. Её
+    // пересчёт должен идти ОТ ПЕРВОЙ вкладки рецепта: иначе пересчитывалась только
+    // текущая вкладка (и её дочерние), а основной рецепт и соседние ветки оставались
+    // со старыми числами. Изменённый масштаб этой вкладки (новая цель, правка
+    // количества ресурса, «Полная лента …», число заводов) переносим на первую
+    // вкладку: все числа рецепта линейны по её цели, так что эта вкладка получит
+    // тот же множитель.
+    const rootId = activeTab ? chainRootTabId(activeTab.id) : null;
+    const rootIndex = rootId ? calcTabs.findIndex((t) => t.id === rootId) : -1;
+    const rootSnap = rootId ? tabSnapshots[rootId] : null;
+    if (rootIndex >= 0 && rootIndex !== activeTabIndex && rootSnap && rootSnap.cascade && rootSnap.cascade.root) {
+      const solved = state.cascade.solvedTargetRate;
+      const factor = solved > 0 && state.cascade.targetRate > 0 ? state.cascade.targetRate / solved : 1;
+      if (isFinite(factor) && Math.abs(factor - 1) > 1e-9) {
+        rootSnap.cascade.targetRate = rootSnap.cascade.targetRate * factor;
+      }
+      saveCurrentTabSnapshot();
+      const keepIndex = activeTabIndex;
+      activeTabIndex = rootIndex;
+      loadTabIntoState(rootIndex);
+      try {
+        await recalcActiveTabChain(false);
+      } finally {
+        saveCurrentTabSnapshot();
+        activeTabIndex = keepIndex;
+        loadTabIntoState(keepIndex);
+      }
+      renderCalcTabBar();
+      renderResults();
+      renderInputResources();
+      return;
+    }
+    await recalcActiveTabChain(rateEdited);
+    renderResults();
+    renderInputResources();
+  }
+
+  /** Первая вкладка рецепта, к которому относится вкладка tabId.
+   *
+   *  Идём по ссылкам на родителя (parentInfo.tabId), пока они живые. Вкладка в
+   *  группе без своей ссылки берёт корень у того участника группы, у которого
+   *  ссылка есть. Кольцо ссылок не зацикливает: на повторе останавливаемся.
+   */
+  function chainRootTabId(tabId) {
+    const byId = new Map(calcTabs.map((t) => [t.id, t]));
+    const hasParent = (t) => t && t.parentInfo && t.parentInfo.tabId && byId.has(t.parentInfo.tabId);
+    const climb = (id) => {
+      const seen = new Set();
+      let cur = byId.get(id);
+      while (hasParent(cur) && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        cur = byId.get(cur.parentInfo.tabId);
+      }
+      return cur ? cur.id : id;
+    };
+    const tab = byId.get(tabId);
+    if (!tab) return null;
+    if (hasParent(tab)) return climb(tabId);
+    if (tab.groupId) {
+      const linked = calcTabs.find((t) => t.groupId === tab.groupId && hasParent(t));
+      if (linked) return climb(linked.id);
+    }
+    return tabId;
+  }
+
+  /** Пересчитать активную вкладку, её группу и всё, что выросло из неё. */
+  async function recalcActiveTabChain(rateEdited) {
     await runSolve();
     // Маяки: эффект маяка зависит от числа заводов этапа (маяк накрывает свою
     // часть этапа, и в расчёт уходит среднее по этапу), а число заводов зависит
@@ -9414,8 +9522,6 @@
     // A chain that eats its own product is scaled up until the NET output
     // matches the requested number (see settleNetTarget / the «чистый выход» note).
     await settleChainNet(calcTabs[activeTabIndex].id);
-    renderResults();
-    renderInputResources();
   }
 
   // If this recalculation changed how much of some resource is needed, any
@@ -10025,11 +10131,6 @@
       return;
     }
 
-    // Manual mode kicks in only once the person has dragged something
-    // themselves; otherwise we always show the automatic smart packing
-    // (whole belts dedicated + leftovers combined with another resource).
-    const manualMode = Object.keys(state.inputPairs).length > 0;
-
     for (const [key, amount] of items) {
       row.appendChild(makeInputResBtn(key, amount, true, coveredBy.has(key)));
     }
@@ -10037,46 +10138,20 @@
       row.appendChild(makeInputResBtn(key, amount, false, coveredBy.has(key)));
     }
 
-    let lines = [];
-    if (items.length) {
-      const amountByKey = new Map(items);
-      const orderedKeys = items.map(([key]) => key);
-      if (manualMode) {
-        const renderManualLine = (key) => {
-          const amount = amountByKey.get(key);
-          const info = computeInputBeltInfo(key, amount);
-          const name = keyDisplayName(state.dataset, key);
-          const icon = iconImg(keyIconUrl(state.dataset, key), 16);
-          const shareText = info.pairedWith ? ` (лента общая с ${keyDisplayName(state.dataset, info.pairedWith)})` : "";
-          const fillDisplay = info.pairedWith
-            ? `${beltFillBarHTML(info.fillPct)} <span class="hint">(своя половина ленты)</span>`
-            : `${beltFillBarHTML(info.fillPct)} <span class="hint">(занимает всю ленту)</span>`;
-          const fullBtn =
-            !info.starves && info.fillPct < 99.5 ? ` ${fullBeltResourceButtonHTML(key)}` : "";
-          const cover = inputResCover(key, coveredBy);
-          let line = `<div class="inputResLine${cover.cls}">${icon}<b>${name}</b>: нужно ${amount.toFixed(2)}/сек${shareText} → ${info.beltsNeeded} ${pluralBelts(info.beltsNeeded)}: ${fillDisplay}${fullBtn}`;
-          if (info.starves) {
-            line += `<br/><span class="inputResWarn">⚠ половины ленты не хватит даже на один завод без простоя (нужно ≥ ${info.neededPerMachine.toFixed(2)}/сек на завод, а половина ленты даёт максимум ${info.perBeltCapacity}/сек — этому ресурсу нужна отдельная лента целиком)</span>`;
-          }
-          line += `${cover.note}</div>`;
-          return line;
-        };
-        // In manual mode the pairing lives in state.inputPairs.
-        const partnerOf = (key) => {
-          const p = state.inputPairs[key];
-          return p && amountByKey.has(p) ? p : null;
-        };
-        lines = buildInputResLines(orderedKeys, partnerOf, renderManualLine);
-      } else {
-        const plan = computeSmartBeltPlan(items);
-        // Two resources share a belt when the smart plan pairs their leftovers.
-        const partnerOf = (key) => {
-          const s = plan.sharedByKey[key];
-          return s && s.partner ? s.partner.key : null;
-        };
-        lines = buildInputResLines(orderedKeys, partnerOf, (key) => renderSmartResourceLine(key, plan, coveredBy));
-      }
-    }
+    // Вверху — только какие ресурсы и сколько их нужно. Раскладку по лентам
+    // (общая лента на двоих и т.п.) здесь не показываем: её считают карточки
+    // этапов внизу, и сводка с другим распределением им противоречила.
+    // Количество редактируется: Enter пересчитывает всю цепочку и все вкладки
+    // рецепта (тот же масштаб, что у жидкостей — см. commitFluidRateEdit).
+    let lines = items.map(([key, amount]) => {
+      const name = keyDisplayName(state.dataset, key);
+      const icon = iconImg(keyIconUrl(state.dataset, key), 16);
+      const cover = inputResCover(key, coveredBy);
+      return `<div class="inputResLine${cover.cls}">${icon}<b>${name}</b>: нужно ${fluidRateEditorHTML(
+        key,
+        amount
+      )}${cover.note}</div>`;
+    });
 
     if (fluids.length) {
       const fluidLines = fluids.map(([key, amount]) => {
@@ -10158,6 +10233,9 @@
         state.lastResult = { error: "Сервер вернул неожиданный ответ на /api/solve." };
       } else {
         state.lastResult = res;
+        // Цель, под которую посчитан результат: по ней recalcChainAndTabs узнаёт,
+        // во сколько раз человек поменял масштаб дочерней вкладки.
+        state.cascade.solvedTargetRate = state.cascade.targetRate;
       }
       state.dirty = true;
     } catch (e) {
@@ -12930,6 +13008,9 @@
     ungroupTab,
     estimateGroupInitialTarget,
     recalcResults,
+    recalcChainAndTabs,
+    commitFluidRateEdit,
+    chainRootTabId,
     recalcDescendantTabs,
     repairTabParentLinks,
     tabNeedForItem,

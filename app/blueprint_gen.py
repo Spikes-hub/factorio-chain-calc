@@ -3428,17 +3428,115 @@ def items_for_blueprint(obj: dict, geometry: dict | None = None,
     }
 
 
+# Сколько ячеек в сундуке запроса (Factorio 2.0) и сколько влезает в ячейку, если
+# датасет не знает размер стопки.
+REQUESTER_CHEST_SLOTS = 48
+DEFAULT_STACK_SIZE = 50
+
+
+def split_items_to_chests(items: list[dict], stacks: dict | None = None,
+                          slots: int = REQUESTER_CHEST_SLOTS,
+                          per_request_cap: int = 100000) -> list[dict]:
+    """Раскладывает запрос по сундукам так, чтобы в каждом хватило ячеек.
+
+    Предмету нужно ceil(количество / стопка) ячеек. Сначала режем предметы, которым
+    не хватит и целого сундука, потом остальные кладём «сначала самые тяжёлые» в
+    первый сундук, где есть место. Возвращает [{"items": [...], "slots": занято}];
+    для пустого запроса — один пустой сундук.
+    """
+    stacks = stacks or {}
+    slots = max(1, int(slots))
+    chests: list = []   # {"items": [...], "slots": int}
+
+    def new_chest() -> dict:
+        chest = {"items": [], "slots": 0}
+        chests.append(chest)
+        return chest
+
+    def need(name: str, count: int) -> int:
+        stack = max(1, int(stacks.get(name) or DEFAULT_STACK_SIZE))
+        return -(-count // stack)
+
+    rows = []
+    for row in items:
+        if not row.get("name") or not row.get("count"):
+            continue
+        rows.append((row, min(int(row["count"]), int(per_request_cap))))
+
+    pending: list = []
+    for row, count in rows:
+        stack = max(1, int(stacks.get(row["name"]) or DEFAULT_STACK_SIZE))
+        # Предмет больше сундука: целые сундуки отдаём под него одного.
+        while need(row["name"], count) > slots:
+            chest = new_chest()
+            take = slots * stack
+            chest["items"].append({**row, "count": take})
+            chest["slots"] = slots
+            count -= take
+        pending.append((row, count))
+    pending.sort(key=lambda rc: -need(rc[0]["name"], rc[1]))
+    for row, count in pending:
+        n = need(row["name"], count)
+        target = next((c for c in chests if c["slots"] + n <= slots), None)
+        if target is None:
+            target = new_chest()
+        target["items"].append({**row, "count": count})
+        target["slots"] += n
+    if not chests:
+        new_chest()
+    return chests
+
+
 def chest_for_blueprint(obj: dict, geometry: dict | None = None,
                         dataset_id: str | None = None,
                         label: str | None = None) -> dict:
-    """Сундук запроса на всё, что нужно для вставленного чертежа."""
+    """Сундук (или несколько, если всё не влезает в один) на чертёж.
+
+    "chest" — один сундук, а при нескольких — книга из них; "chests" — каждый сундук
+    отдельно вместе со своими предметами и занятыми ячейками.
+    """
     data = items_for_blueprint(obj, geometry, dataset_id)
-    if label:
-        chest = shopping_chest(data["items"], label=label)
+    table = dataset_items(dataset_id)
+    stacks = {name: (row or {}).get("stack_size") for name, row in table.items()
+              if isinstance(row, dict)}
+    parts = split_items_to_chests(data["items"], stacks)
+    total = len(parts)
+    built = []
+    for i, part in enumerate(parts, 1):
+        kwargs = {"part": (i, total)} if total > 1 else {}
+        if label:
+            chest = shopping_chest(part["items"], label=label, **kwargs)
+        else:
+            # «по вставленному блюпринту» — готовая фраза, а не имя цепочки.
+            chest = shopping_chest(part["items"], phrase="по вставленному блюпринту", **kwargs)
+        built.append({"chest": chest, "items": part["items"], "slots": part["slots"]})
+    if total == 1:
+        top = built[0]["chest"]
     else:
-        # «по вставленному блюпринту» — готовая фраза, а не имя цепочки.
-        chest = shopping_chest(data["items"], phrase="по вставленному блюпринту")
-    return {"chest": chest, **data}
+        # Один чертёж: сундуки стоят в ряд, у каждого свой запрос.
+        base = bp.blueprint_of(built[0]["chest"])
+        title = base.get("label", "").split(" (", 1)[0]
+        entities = []
+        lines = []
+        for i, b in enumerate(built):
+            inner = bp.blueprint_of(b["chest"])
+            ent = _entity(i + 1, "requester-chest", i, 0, (1, 1), 0)
+            src = (inner.get("entities") or [{}])[0]
+            if src.get("request_filters"):
+                ent["request_filters"] = src["request_filters"]
+            entities.append(ent)
+            desc = inner.get("description", "")
+            lines.append(desc.split("\n", 1)[0].replace("Сундук запроса", f"Сундук {i + 1}", 1)
+                         .replace(f" (сундук {i + 1} из {total})", "")
+                         + "\n" + (desc.split("\n", 2)[2] if desc.count("\n") >= 2 else ""))
+        top = {"blueprint": {
+            "item": "blueprint", "version": BLUEPRINT_VERSION,
+            "label": f"{title} ({_positions_ru(len(data['items']))}, {total} сундуков)",
+            "description": f"{total} сундуков запроса в ряд — всё не влезло в один.\n"
+                           + "\n".join(lines),
+            "entities": entities,
+        }}
+    return {"chest": top, "chests": built, "slots_per_chest": REQUESTER_CHEST_SLOTS, **data}
 
 
 def request_filters(items: list[dict], per_request_cap: int = 100000) -> list[dict]:
@@ -3471,8 +3569,12 @@ def shopping_chest(items: list[dict], chest: str = "requester-chest",
                    per_request_cap: int = 100000,
                    label: str | None = None,
                    item_names: dict | None = None,
-                   phrase: str | None = None) -> dict:
+                   phrase: str | None = None,
+                   part: tuple | None = None) -> dict:
     """Один сундук запроса, в котором выставлено всё, что нужно для постройки.
+
+    part — (номер, всего), если запрос не влез в один сундук и разбит на несколько:
+    в названии чертежа будет «сундук 2 из 3».
 
     label — имя цепочки с сайта: попадает в название чертежа, чтобы в игре было
     видно, к какой цепочке сундук относится. phrase — готовая фраза вместо имени
@@ -3499,10 +3601,11 @@ def shopping_chest(items: list[dict], chest: str = "requester-chest",
         shown = {name: name.replace("-", " ").replace("_", " ").capitalize() for name in shown}
         shown.update({f["name"]: f["name"].replace("-", " ").replace("_", " ").capitalize() for f in filters})
     lines = [f"  {shown.get(f['name']) or f['name']} — {f['count']}" for f in filters]
-    description = (f"Сундук запроса{chain}: {_positions_ru(len(filters))}.\n"
+    part_note = f" (сундук {part[0]} из {part[1]})" if part else ""
+    description = (f"Сундук запроса{chain}{part_note}: {_positions_ru(len(filters))}.\n"
                    "Вставь его рядом со стройкой — он сам запросит всё это из логистики.\n"
                    + "\n".join(lines))
     return {"blueprint": {"item": "blueprint", "version": BLUEPRINT_VERSION,
-                          "label": f"Закупка{chain} ({_positions_ru(len(filters))})",
+                          "label": f"Закупка{chain} ({_positions_ru(len(filters))}){part_note}",
                           "description": description,
                           "entities": entities}}
