@@ -302,6 +302,8 @@ class MallBlueprintRequest(BaseModel):
     perRow: int = 20
     maxChars: int = 4000
     multiplier: int = 4
+    inserterIn: Optional[str] = "inserter"
+    inserterOut: Optional[str] = "inserter"
 
 
 # Куда класть готовые строки: их удобно перетащить файлом в окно игры, если
@@ -337,11 +339,13 @@ def make_mall_blueprint(req: MallBlueprintRequest):
     try:
         data = mall_gen.build_mall(req.datasetId, per_row=max(1, int(req.perRow)),
                                    max_chars=max(1, int(req.maxChars)),
-                                   multiplier=max(1, int(req.multiplier)), pole=pole)
+                                   multiplier=max(1, int(req.multiplier)), pole=pole,
+                                   inserter_in=req.inserterIn, inserter_out=req.inserterOut)
         whole = mall_gen.build_mall(req.datasetId, per_row=max(1, int(req.perRow)),
                                     per_chunk=None, max_chars=None,
                                     multiplier=max(1, int(req.multiplier)),
-                                    pole=pole)["chunks"][0]
+                                    pole=pole, inserter_in=req.inserterIn,
+                                    inserter_out=req.inserterOut)["chunks"][0]
     except (ValueError, KeyError) as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
 

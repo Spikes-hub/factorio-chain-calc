@@ -4258,6 +4258,7 @@
     moduleCatalogCache = null; // module list & user overrides are per-dataset
     state.onlyUnlocked = searchUnlockedInitial(id);
     renderBeltButtons();
+    renderMallInserters();
     loadInserterSetup(id); // раздел «Манипуляторы» общий для всех дампов
     refreshInserterOffer();
     renderInserterTable();
@@ -6912,6 +6913,29 @@
     );
   }
 
+  function mallInserterList() {
+    const only = document.getElementById("mallOnlyUnlocked")?.checked;
+    return blueprintEntities("inserter").filter((e) =>
+      !only || !datasetKnowsUnlocked(state.dataset) || itemResearchedInSave(e.items_to_place_this?.[0]?.name || e.name)
+    ).map((e) => ({ ...e, icon_url: e.icon_url || keyIconUrl(state.dataset, "item:" + e.name) }));
+  }
+
+  function renderMallInserters() {
+    const list = mallInserterList();
+    for (const id of ["mallInserterIn", "mallInserterOut"]) {
+      const select = document.getElementById(id);
+      if (!select) continue;
+      const selected = list.find((e) => e.name === select.value)?.name
+        || list.find((e) => e.name === "inserter")?.name || list[0]?.name || "";
+      select.innerHTML = list.length ? blueprintOptionsHTML(list, selected)
+        : '<option value="">Нет доступных манипуляторов</option>';
+      select.value = selected;
+    }
+    const hint = document.getElementById("mallInserterHint");
+    if (hint) hint.textContent = state.dataset && !datasetKnowsUnlocked(state.dataset)
+      ? "Полный дамп: что изучено, неизвестно — показаны все." : "";
+  }
+
   async function buildMallBlueprint() {
     const out = document.getElementById("mallBlueprintResult");
     if (!out) return;
@@ -6924,7 +6948,10 @@
       const response = await apiFetch("/api/mall_blueprint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ datasetId: state.datasetId, maxChars }),
+        body: JSON.stringify({ datasetId: state.datasetId, maxChars,
+          inserterIn: mallInserterList().find((e) => e.name === document.getElementById("mallInserterIn")?.value)?.name || null,
+          inserterOut: mallInserterList().find((e) => e.name === document.getElementById("mallInserterOut")?.value)?.name || null,
+        }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data || data.error) {
@@ -12326,6 +12353,8 @@
     if (chainBpBtn) chainBpBtn.addEventListener("click", () => safeCall(buildChainBlueprint));
     // «Сборщики всего» — в разделе «Сундук по блюпринту»; результат показывается в своём
     // контейнере, у каждой части своя кнопка копирования.
+    document.getElementById("mallOnlyUnlocked")?.addEventListener("change", renderMallInserters);
+    renderMallInserters();
     const mallBpBtn = document.getElementById("mallBlueprintBtn");
     if (mallBpBtn) mallBpBtn.addEventListener("click", () => safeCall(buildMallBlueprint));
     const mallBpOut = document.getElementById("mallBlueprintResult");
@@ -12905,6 +12934,8 @@
     buildChainBlueprint,
     mallBlueprintHTML,
     buildMallBlueprint,
+    mallInserterList,
+    renderMallInserters,
     blueprintPanelHTML,
     blueprintPayloadForNode,
     blueprintBeltSides,

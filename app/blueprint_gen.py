@@ -830,9 +830,6 @@ def generate_row_block(spec: BlockSpec, geometry: dict | None = None) -> dict:
         for (px, py) in power["tiles"]:
             entities.append(_entity(number, spec.pole, px, py, (1, 1), 0))
             number += 1
-        # Провода между столбами: в игре чертёж строит ИМЕННО прописанные связи,
-        # без них столбы встают без проводов (bp.connect_power_wires).
-        bp.connect_power_wires({"blueprint": {"entities": entities}}, geom)
 
     blueprint = {
         "item": "blueprint",
@@ -841,6 +838,11 @@ def generate_row_block(spec: BlockSpec, geometry: dict | None = None) -> dict:
     }
     if spec.label:
         blueprint["label"] = spec.label
+    if spec.pole:
+        # Провода между столбами: в игре чертёж строит ИМЕННО прописанные связи, без
+        # них столбы встают без проводов (bp.connect_power_wires). Зовём на ГОТОВОМ
+        # чертеже: провода лежат в нём самом (поле `wires`), а не у сущностей.
+        bp.connect_power_wires({"blueprint": blueprint}, geom)
     return {"blueprint": blueprint}
 
 
@@ -2901,10 +2903,18 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
             sandwich_notes.append(
                 "лента выгрузки едет в другую сторону от подачи: вход с одного конца "
                 "блока, выход с другого (настройка «в разные стороны»)")
-    # ПРОВОДА между столбами: без них игра ставит столбы без проводов (чертёж
-    # помнит связи и всегда строит именно их — см. bp.connect_power_wires).
+    # Завод, который в игре не скрафтить: сказать об этом в самом чертеже.
+    craft_note = machine_craft_note(spec.machine, spec.dataset_id)
+    if craft_note:
+        sandwich_problems.append(craft_note)
+    blueprint = {"item": "blueprint", "version": BLUEPRINT_VERSION,
+                 "label": f"{label} ({split})", "entities": entities}
+    # ПРОВОДА между столбами: в игре чертёж строит ИМЕННО прописанные связи, без них
+    # столбы встают без проводов (bp.connect_power_wires). Провода живут в САМОМ
+    # чертеже (поле `wires`), поэтому зовём на готовом словаре — на временной обёртке
+    # они бы просто потерялись.
     if spec.pole:
-        wires = bp.connect_power_wires({"blueprint": {"entities": entities}}, geom)
+        wires = bp.connect_power_wires({"blueprint": blueprint}, geom)
         if len(wires["components"]) > 1:
             sandwich_problems.append(
                 f"столбы разбились на {len(wires['components'])} сети: провод между ними "
@@ -2912,12 +2922,6 @@ def _sandwich_block(spec: BlockSpec, geometry: dict | None = None, gap_pairs: in
         elif wires["poles"] > 1 and not wires["wires"]:
             sandwich_problems.append(
                 "провода между столбами не прописаны: они стоят дальше вылета провода")
-    # Завод, который в игре не скрафтить: сказать об этом в самом чертеже.
-    craft_note = machine_craft_note(spec.machine, spec.dataset_id)
-    if craft_note:
-        sandwich_problems.append(craft_note)
-    blueprint = {"item": "blueprint", "version": BLUEPRINT_VERSION,
-                 "label": f"{label} ({split})", "entities": entities}
     if spec.pipes and (fluid_in_all or fluid_out_all):
         try:
             sandwich_notes.extend(fluid_feed_notes(entities, geom, _USED_BOXES.get() or [], spec))
@@ -2977,16 +2981,17 @@ def _legacy_row_groups(spec: BlockSpec, geometry: dict | None = None) -> dict:
     total = sum(groups)
     split = "+".join(str(g) for g in groups)
     label = spec.label or f"{spec.machine} × {total}"
+    blueprint = {"item": "blueprint", "version": BLUEPRINT_VERSION,
+                 "label": f"{label} ({split})", "entities": entities}
     if spec.pole:
         # Столбы рядов соединяем ПОСЛЕ сборки: ряды ставятся друг под другом, и
         # провод между рядами надо тянуть по всему блоку, а не внутри ряда.
-        wires = bp.connect_power_wires({"blueprint": {"entities": entities}}, geom)
+        # Провода пишутся в сам чертёж (поле `wires`), поэтому — на готовом словаре.
+        wires = bp.connect_power_wires({"blueprint": blueprint}, geom)
         if len(wires["components"]) > 1:
             sandwich_problems.append(
                 f"столбы рядов разбились на {len(wires['components'])} сети: провод между ними "
                 f"не дотягивается — поставь столб между рядами, иначе часть блока без питания")
-    blueprint = {"item": "blueprint", "version": BLUEPRINT_VERSION,
-                 "label": f"{label} ({split})", "entities": entities}
     if sandwich_problems:
         blueprint["description"] = "\n".join(sandwich_problems)
     return {"blueprint": blueprint}

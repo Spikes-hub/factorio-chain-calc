@@ -164,24 +164,40 @@
             <button id="bpChestBtn" class="btn btn-primary">Разобрать и собрать сундук</button>
             <span class="hint">сундук просит ровно то, из чего чертёж состоит: заводы, ленты, манипуляторы, столбы и модули</span>
           </div>
-          <h3 class="bpChestSubhead">Или собрать сами сборщики</h3>
-          <p class="hint">
-            «Сборщики всего» — чертёж, где по автомату на каждый рецепт, который делает постройку (заводы, столбы,
-            ленты, сундуки, манипуляторы, печи…) и на каждый модуль из дампа (скорость, продуктивность,
-            эффективность и модули модов). Плиты, пакеты науки и прочие промежуточные сюда не входят — их везёт сеть.
-            У каждого автомата сундук запроса с нужным ×4 и сундук снабжения,
-            между ними манипуляторы. Строка всего молла (~120 КБ) игра вставить не может, поэтому чертёж режется на
-            части: вставляй их по одной.
-          </p>
-          <div class="toolRow">
-            <label class="hint" for="mallChunkSize">Длина одной части:</label>
-            <select id="mallChunkSize" class="select" title="Сколько символов игра принимает во вставке. Если отвечает «ошибка импорта» — возьми меньше; если части вставляются хорошо — можно взять больше, тогда частей будет меньше.">
-              <option value="4000" selected>~4 КБ — как рабочие чертежи этапов</option>
-              <option value="8000">~8 КБ — крупнее</option>
-              <option value="20000">~20 КБ — самые крупные</option>
-            </select>
-            <button id="mallBlueprintBtn" class="btn btn-primary">Собрать блюпринт сборщиков всего</button>
-          </div>
+          <section class="mallSettings" aria-labelledby="mallSettingsTitle">
+            <h3 id="mallSettingsTitle">Сборщики всего</h3>
+            <p class="hint mallDescription">По сборщику на каждый рецепт постройки и модуля из дампа.</p>
+            <div class="mallInserterHeading">
+              <span>Манипуляторы</span>
+              <label class="mallUnlocked"><input type="checkbox" id="mallOnlyUnlocked" /> Только изученные</label>
+            </div>
+            <div class="mallInserterGrid">
+              <div class="mallField">
+                <label class="hint" for="mallInserterIn">Загрузка ресурсов</label>
+                <select id="mallInserterIn" class="select" aria-label="Манипулятор загрузки ресурсов"></select>
+              </div>
+              <div class="mallField">
+                <label class="hint" for="mallInserterOut">Выгрузка продукции</label>
+                <select id="mallInserterOut" class="select" aria-label="Манипулятор выгрузки продукции"></select>
+              </div>
+            </div>
+            <p id="mallInserterHint" class="hint mallInserterHint"></p>
+            <div class="mallSettingsFooter">
+              <div class="mallChunkField">
+                <label class="hint" for="mallChunkSize">Длина части</label>
+                <select id="mallChunkSize" class="select" title="Сколько символов игра принимает во вставке. Если отвечает «ошибка импорта» — возьми меньше; если части вставляются хорошо — можно взять больше, тогда частей будет меньше.">
+                  <option value="4000" selected>~4 КБ</option>
+                  <option value="8000">~8 КБ</option>
+                  <option value="20000">~20 КБ</option>
+                </select>
+              </div>
+              <button id="mallBlueprintBtn" class="btn btn-primary" title="Собрать блюпринт сборщиков всего">Собрать блюпринт</button>
+            </div>
+            <details class="mallDetails hint">
+              <summary>Что входит в блюпринт</summary>
+              <p>По автомату на каждый рецепт постройки (заводы, столбы, ленты, сундуки, манипуляторы, печи…) и на каждый модуль из дампа. Плиты, пакеты науки и прочие промежуточные материалы сюда не входят — их везёт сеть. У каждого автомата сундук запроса с нужным ×4 и сундук снабжения, между ними выбранные манипуляторы. Блюпринт режется на части для вставки в игру.</p>
+            </details>
+          </section>
           <p class="hint">Целый молл сохраняется файлом <b>generated/mall-sborshchiki-ves.txt</b>: его можно
             перетащить прямо в окно игры — так проходит даже очень длинная строка. Части — тоже файлами.</p>
           <div id="mallBlueprintResult" class="bpResult"></div>

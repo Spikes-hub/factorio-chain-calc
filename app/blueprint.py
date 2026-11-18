@@ -64,6 +64,12 @@ IGNORE_COLLISION = {
 
 PIPE_TYPES = {"pipe", "pipe-to-ground", "infinity-pipe", "valve", "heat-pipe"}
 
+# Разъём медного провода в чертеже 2.0 (`defines.wire_connector_id`): 5 —
+# обычный медный, 6 — второй медный (у переключателей питания). Сигнальные
+# провода — 1…4 (красный/зелёный с двух сторон). Пара столбов записывается как
+# `[номер, 5, номер, 5]` — так и пишет сама игра.
+WIRE_COPPER = 5
+
 # У обычной трубы «входы/выходы» — это просто четыре стыка, они подключаются к
 # соседям сами, и предупреждать о них не о чем. Смотрим только на устья, которые
 # кто-то должен обслужить: заводы, подземные трубы, насосы, баки.
@@ -522,12 +528,56 @@ def pole_tiles(obj: dict, geometry: dict | None = None) -> list[dict]:
     return out
 
 
+def power_wires(obj: dict) -> list[tuple[int, int]]:
+    """Провода чертежа: пары `entity_number` (по одной записи на пару).
+
+    Factorio 2.0 пишет провода в САМОМ чертеже, полем `wires`:
+    `[[entity_a, разъём_a, entity_b, разъём_b], ...]`, медь — 5
+    (`defines.wire_connector_id`). Так выглядят чертежи самой игры 2.0: у них есть
+    `wires` и НЕТ `neighbours`. До 2.0 провод лежал у столба полем `neighbours`
+    (1.x, «Copper wire connections»), и такие чертежи приходят из старых версий —
+    читаем оба вида, чтобы разбор и проверки работали с любым чертежом.
+
+    Сигнальные провода (красный/зелёный, разъёмы 1…4) в пары питания не попадают.
+    """
+    container = blueprint_of(obj)
+    pairs: list[tuple[int, int]] = []
+    seen: set = set()
+
+    def add(a, b) -> None:
+        if a is None or b is None:
+            return
+        try:
+            key = (min(int(a), int(b)), max(int(a), int(b)))
+        except (TypeError, ValueError):
+            return
+        if key[0] == key[1] or key in seen:
+            return
+        seen.add(key)
+        pairs.append(key)
+
+    for wire in container.get("wires") or []:
+        if not isinstance(wire, (list, tuple)) or len(wire) < 4:
+            continue
+        side_a, side_b = wire[1], wire[3]
+        copper = (WIRE_COPPER, WIRE_COPPER + 1)      # 5 и 6 — оба медных разъёма
+        if side_a not in copper or side_b not in copper:
+            continue
+        add(wire[0], wire[2])
+    for ent in iter_entities(obj):
+        number = ent.get("entity_number")
+        for other in ent.get("neighbours") or []:
+            add(number, other)
+    return pairs
+
+
 def connect_power_wires(obj: dict, geometry: dict | None = None) -> dict:
-    """Прописать в чертёж провода между столбами (поле `neighbours`).
+    """Прописать в чертёж провода между столбами (поле `wires`, формат 2.0).
 
     В блюпринте провода не создаются сами: игра строит ровно те связи, что записаны
-    в `neighbours` («Copper wire connections, array of entity_numbers»,
-    https://wiki.factorio.com/Blueprint_string_format).
+    в чертеже. В 2.0 это поле `wires` у самого чертежа, пара записывается как
+    `[номер, 5, номер, 5]` (медь); поле `neighbours` игра 2.0 не читает — чертёж с
+    одними `neighbours` встаёт БЕЗ проводов (столбы стоят, сети нет).
 
     Соединяются ближайшие столбы (минимальное остовное дерево, алгоритм Прима по сетке):
     сеть связная, на столб приходится один-два провода — у столба есть предел числа
@@ -535,9 +585,15 @@ def connect_power_wires(obj: dict, geometry: dict | None = None) -> dict:
 
     Возвращает отчёт: сколько проводов, сети и столбы, оставшиеся без провода.
     """
+    container = blueprint_of(obj)
     poles = pole_tiles(obj, geometry)
     report = {"poles": len(poles), "wires": 0, "components": [], "isolated": [],
               "long": []}
+    # Старые связи убираем: они могли остаться от ряда или блока, из которого собрали
+    # этот чертёж, и тогда номера в них чужие (по ним игра полезла бы не туда).
+    for ent in container.get("entities") or []:
+        ent.pop("neighbours", None)
+    container.pop("wires", None)
     if len(poles) < 2:
         return report
 
@@ -583,15 +639,16 @@ def connect_power_wires(obj: dict, geometry: dict | None = None) -> dict:
                         if distance <= reach + 1e-9:
                             near.append((distance, i, j))
     near.sort()
+    linked: list[tuple[int, int]] = []
     for distance, i, j in near:
         if find(i) == find(j):
             continue
         union(i, j)
-        wires = poles[i]["entity"].setdefault("neighbours", [])
-        wires.append(poles[j]["number"])
-        wires = poles[j]["entity"].setdefault("neighbours", [])
-        wires.append(poles[i]["number"])
-        report["wires"] += 1
+        linked.append((poles[i]["number"], poles[j]["number"]))
+    if linked:
+        # Провод в чертеже 2.0: [номер, медь, номер, медь].
+        container["wires"] = [[a, WIRE_COPPER, b, WIRE_COPPER] for a, b in linked]
+    report["wires"] = len(linked)
 
     groups: dict[int, list[int]] = {}
     for index in range(len(poles)):
@@ -605,25 +662,41 @@ def connect_power_wires(obj: dict, geometry: dict | None = None) -> dict:
         report["isolated"] = [[poles[i]["name"], poles[i]["tile"]]
                               for i in range(len(poles)) if i not in in_main]
     # Связи, которые игра не создаст: провод длиннее вылета.
-    for pole in poles:
-        ax, ay = pole["tile"]
-        for neighbour_number in pole["entity"].get("neighbours") or []:
-            other = next((p for p in poles if p["number"] == neighbour_number), None)
-            if not other:
-                continue
-            distance = ((ax - other["tile"][0]) ** 2 + (ay - other["tile"][1]) ** 2) ** 0.5
-            if distance > max(pole_wire_distance(pole["name"], geometry),
-                              pole_wire_distance(other["name"], geometry)) + 1e-9:
-                report["long"].append([pole["tile"], other["tile"], round(distance, 2)])
+    by_number = {pole["number"]: pole for pole in poles}
+    for a, b in linked:
+        left, right = by_number.get(a), by_number.get(b)
+        if not left or not right:
+            continue
+        lx, ly = left["tile"]
+        rx, ry = right["tile"]
+        distance = ((lx - rx) ** 2 + (ly - ry) ** 2) ** 0.5
+        if distance > max(pole_wire_distance(left["name"], geometry),
+                          pole_wire_distance(right["name"], geometry)) + 1e-9:
+            report["long"].append([left["tile"], right["tile"], round(distance, 2)])
     return report
 
 
 def pole_wire_problems(obj: dict, geometry: dict | None = None) -> list[dict]:
-    """Столбы без провода, хотя сосед в пределах вылета: в игре это мёртвая сеть."""
+    """Что в чертеже не так с проводами: столб без провода, провод в пустоту."""
     poles = pole_tiles(obj, geometry)
+    by_number = {pole["number"]: pole for pole in poles}
+    entities = iter_entities(obj)
+    numbers = {int(e.get("entity_number") or 0) for e in entities}
+    wired: set = set()
     problems = []
+    for a, b in power_wires(obj):
+        for number in (a, b):
+            if number not in numbers:
+                problems.append({
+                    "level": "warn",
+                    "text": f"провод ссылается на постройку {number}, которой нет в чертеже "
+                            f"— в игре такой провод не появится",
+                    "entity": number,
+                })
+            elif number in by_number:
+                wired.add(number)
     for index, pole in enumerate(poles):
-        if pole["entity"].get("neighbours"):
+        if pole["number"] in wired:
             continue
         ax, ay = pole["tile"]
         reach = pole_wire_distance(pole["name"], geometry)
@@ -646,7 +719,7 @@ def pole_wire_problems(obj: dict, geometry: dict | None = None) -> list[dict]:
 
 
 def pole_wire_components(obj: dict, geometry: dict | None = None) -> list[list[dict]]:
-    """Сети столбов ПО ПРОПИСАННЫМ ПРОВОДАМ (`neighbours`), а не по расстоянию.
+    """Сети столбов ПО ПРОПИСАННЫМ ПРОВОДАМ, а не по расстоянию.
 
     Это проверка того, что увидит игра: провод появляется только там, где он есть
     в чертеже. Геометрическая близость (`pole_components` в генераторе) отвечает
@@ -662,13 +735,12 @@ def pole_wire_components(obj: dict, geometry: dict | None = None) -> list[list[d
             number = parent[number]
         return number
 
-    for pole in poles:
-        for neighbour in pole["entity"].get("neighbours") or []:
-            if neighbour not in by_number:
-                continue
-            ra, rb = find(pole["number"]), find(neighbour)
-            if ra != rb:
-                parent[ra] = rb
+    for a, b in power_wires(obj):
+        if a not in by_number or b not in by_number:
+            continue
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
     groups: dict[int, list[dict]] = {}
     for pole in poles:
         groups.setdefault(find(pole["number"]), []).append(pole)

@@ -547,7 +547,8 @@ def layout_columns(entries: list[dict], geometry: dict, per_row: int = PER_COLUM
 def _build_chunk(entries: list[dict], geom: dict, per_row: int, multiplier: int,
                  pole: str | None, label: str, index: int, total: int,
                  offset: int, total_recipes: int, dataset: dict | None = None,
-                 plan: dict | None = None) -> dict:
+                 plan: dict | None = None, inserter_in: str | None = INSERTER,
+                 inserter_out: str | None = INSERTER) -> dict:
     """Один чертёж молла: столбцы автоматов с сундуками и питанием.
 
     Строка всего молла (~130 КБ) в игру не вставляется (предел длины окна импорта),
@@ -586,7 +587,8 @@ def _build_chunk(entries: list[dict], geom: dict, per_row: int, multiplier: int,
         filters = request_filters_for(cell, multiplier)
         if filters:
             chest_in["request_filters"] = {"sections": [{"index": 1, "filters": filters}]}
-        put(INSERTER, x + cell["inCol"], top + height, 8)
+        if inserter_in:
+            put(inserter_in, x + cell["inCol"], top + height, 8)
         machine = gen._entity(number, cell["machine"], x, top, cell["size"], cell["direction"])
         machine["recipe"] = cell["recipe"]
         machine["recipe_quality"] = "normal"
@@ -594,12 +596,14 @@ def _build_chunk(entries: list[dict], geom: dict, per_row: int, multiplier: int,
         number += 1
         if cell["dropCol"] is None:
             # Выгрузка: манипулятор берёт из завода (север) в сундук снабжения снизу.
-            put(INSERTER, x + cell["outCol"], top + height, 0)
+            if inserter_out:
+                put(inserter_out, x + cell["outCol"], top + height, 0)
             chest_out = put(PROVIDER, x + cell["outCol"], top + height + 1, 0)
         else:
             # Завод сам кладёт продукт на тайл под собой: тайл свободен, а
             # манипулятор забирает продукт уже с него в сундук снабжения.
-            put(INSERTER, x + cell["dropCol"], top + height + 1, 0)
+            if inserter_out:
+                put(inserter_out, x + cell["dropCol"], top + height + 1, 0)
             chest_out = put(PROVIDER, x + cell["dropCol"], top + height + 2, 0)
         # Лимит сундука снабжения: у заводов 20 ячеек, у всего остального лимита
         # нет — пусть сундук наполняется целиком.
@@ -626,11 +630,28 @@ def _build_chunk(entries: list[dict], geom: dict, per_row: int, multiplier: int,
         poles.extend(extra)
         for (px, py) in poles:
             put(pole, px, py, 0)
-        # Провода между столбами: игра строит ИМЕННО прописанные связи, и без
-        # `neighbours` тысяча столбов молла встала бы без проводов
-        # (см. bp.connect_power_wires).
-        bp.connect_power_wires({"blueprint": {"entities": entities}}, geom)
         notes.extend(wire_notes)
+
+    # --- сам чертёж и провода
+    #
+    # Провода между столбами: игра строит ИМЕННО прописанные связи, и без них тысяча
+    # столбов молла встала бы без проводов. В 2.0 провод лежит В САМОМ чертеже
+    # (поле `wires`, пары `[номер, 5, номер, 5]`), поэтому чертёж собираем сразу и
+    # зовём bp.connect_power_wires на нём — на временной обёртке провода терялись.
+    chunk_label = f"{label} {index}/{total} ({len(placements)} автоматов)"
+    blueprint: dict = {
+        "item": "blueprint",
+        "version": gen.BLUEPRINT_VERSION,
+        "label": chunk_label[:200],
+        "entities": entities,
+    }
+    if pole:
+        wire_report = bp.connect_power_wires({"blueprint": blueprint}, geom)
+        if len(wire_report["components"]) > 1:
+            notes.append(
+                f"столбы распались на {len(wire_report['components'])} сети: между ними нет "
+                f"свободного места под провод — соедини сети проводом вручную, иначе "
+                f"часть молла останется без питания")
 
     # --- описание и стат
     fluid_cells = [c for c in placements if c["fluids"]]
@@ -728,14 +749,7 @@ def _build_chunk(entries: list[dict], geom: dict, per_row: int, multiplier: int,
             lines.append(f"    …и ещё {len(fueled) - 10}")
     lines.append("Заводы: " + ", ".join(f"{name} ×{count}" for name, count in
                                         sorted(per_machine.items(), key=lambda kv: (-kv[1], kv[0]))))
-    chunk_label = f"{label} {index}/{total} ({len(placements)} автоматов)"
-    blueprint = {
-        "item": "blueprint",
-        "version": gen.BLUEPRINT_VERSION,
-        "label": chunk_label[:200],
-        "description": "\n".join(lines + notes),
-        "entities": entities,
-    }
+    blueprint["description"] = "\n".join(lines + notes)
     return {
         "index": index,
         "total": total,
@@ -764,7 +778,8 @@ def build_mall(dataset_id: str | None = None, geometry: dict | None = None,
                per_row: int = PER_ROW, per_chunk: int | None = None,
                max_chars: int = MAX_CHARS,
                multiplier: int = REQUEST_MULTIPLIER,
-               pole: str | None = None, label: str = "Сборщики всего") -> dict:
+               pole: str | None = None, label: str = "Сборщики всего",
+               inserter_in: str | None = INSERTER, inserter_out: str | None = INSERTER) -> dict:
     """Чертежи всего молла, порезанные на части (см. _build_chunk).
 
     Части режутся ПО ДЛИНЕ строки (max_chars): игра не принимает длинные вставки в
@@ -778,6 +793,9 @@ def build_mall(dataset_id: str | None = None, geometry: dict | None = None,
     if not geom:
         raise ValueError("нет файла геометрии — сделай дамп: сделать дамп геометрии.bat")
     dataset = _dataset(dataset_id)
+    for name in (inserter_in, inserter_out):
+        if name is not None and dataset.get("entities", {}).get(name, {}).get("type") != "inserter":
+            raise ValueError(f"манипулятор отсутствует в дампе: {name}")
     recipes = building_recipes(dataset, geom)
     if not recipes:
         raise ValueError("в датасете нет рецептов построек")
@@ -789,7 +807,8 @@ def build_mall(dataset_id: str | None = None, geometry: dict | None = None,
     ordered = [entry for group in plan["groups"] + plan["fluidGroups"]
                for entry in group["entries"]]
     kwargs = {"per_row": per_row, "multiplier": multiplier, "pole": pole,
-              "dataset": dataset, "plan": plan}
+              "dataset": dataset, "plan": plan,
+              "inserter_in": inserter_in, "inserter_out": inserter_out}
 
     def assemble(parts: list[list[dict]]) -> list[dict]:
         """Собирает пронумерованные части: номера знает только этот шаг."""
